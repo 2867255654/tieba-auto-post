@@ -1,0 +1,161 @@
+"""第一步：采集热门游戏资讯。
+
+数据源来自 sources.yaml：
+  - type=rss    直接 RSS 地址
+  - type=rsshub 由 RSSHUB_BASE + route 拼出（需可用实例）
+
+流程：抓取 → 按时间窗口过滤 → 去重 → 按「新鲜度 + 游戏相关度」打分排序 → 取 Top N。
+"""
+import concurrent.futures
+import difflib
+import re
+from datetime import datetime, timedelta, timezone
+
+import feedparser
+import requests
+
+from config import cfg
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    )
+}
+
+# 游戏相关度关键词（命中加分）
+GAME_KEYWORDS = [
+    "游戏", "手游", "端游", "主机", "Steam", "PS5", "PS4", "Xbox", "Switch",
+    "任天堂", "英雄联盟", "LOL", "原神", "王者荣耀", "永劫无间", "蛋仔派对",
+    "二次元", "崩坏", "米哈游", "腾讯游戏", "网易游戏", "版号", "发售", "上线",
+    "公测", "更新", "补丁", "DLC", "联动", "电竞", "战队", "赛事", "暴雪",
+    "Riot", "育碧", "卡普空", "索尼", "微软", "虚幻", "Unity", "独立游戏",
+    "主播", "开服", "停运", "买断", "内购", "抽卡", "皮肤", "赛季",
+]
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _clean(html: str) -> str:
+    return re.sub(r"<[^>]+>", "", html or "").strip()
+
+
+def _parse_date(entry: dict) -> datetime:
+    for key in ("published_parsed", "updated_parsed"):
+        val = entry.get(key)
+        if val:
+            try:
+                return datetime(*val[:6], tzinfo=timezone.utc)
+            except Exception:
+                pass
+    return _now()
+
+
+def _fetch_rss(url: str, source_name: str, timeout: int = 12) -> list:
+    items = []
+    try:
+        # 单源超时隔离：避免某个源卡住拖垮整体
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(feedparser.parse, url)
+            data = future.result(timeout=timeout)
+    except Exception as e:  # noqa: BLE001
+        print(f"[collector] RSS 超时/失败 {url}: {e}")
+        return items
+    if data.bozo and not data.entries:
+        print(f"[collector] RSS 可能不可用 {url}: {getattr(data, 'bozo_exception', '')}")
+    for e in data.entries:
+        title = (e.get("title") or "").strip()
+        link = e.get("link", "")
+        summary = _clean(e.get("summary", e.get("description", "")))
+        published = _parse_date(e)
+        if not title or not link:
+            continue
+        items.append(
+            {
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "published": published,
+                "source": source_name,
+            }
+        )
+    return items
+
+
+def _is_dup(title: str, others: list, threshold: float = 0.82) -> bool:
+    for o in others:
+        if difflib.SequenceMatcher(None, title, o).ratio() > threshold:
+            return True
+    return False
+
+
+def _dedupe(items: list) -> list:
+    seen_titles, out = [], []
+    for it in items:
+        if _is_dup(it["title"], seen_titles):
+            continue
+        seen_titles.append(it["title"])
+        out.append(it)
+    return out
+
+
+def _score(it: str) -> float:
+    age_h = (_now() - it["published"]).total_seconds() / 3600
+    s = max(0.0, float(cfg.max_age_hours) - age_h)  # 新鲜度
+    text = it["title"] + it["summary"]
+    for kw in GAME_KEYWORDS:
+        if kw.lower() in text.lower():
+            s += 3.0
+    return s
+
+
+def collect() -> list:
+    raw = []
+    for src in cfg.sources:
+        stype = src.get("type", "rss")
+        name = src.get("name", "unknown")
+        if stype == "rss":
+            url = src.get("url", "")
+        elif stype == "rsshub":
+            url = cfg.rsshub_base.rstrip("/") + src.get("route", "")
+        else:
+            continue
+        if not url:
+            continue
+        raw += _fetch_rss(url, name)
+
+    cutoff = _now() - timedelta(hours=cfg.max_age_hours)
+    recent = [it for it in raw if it["published"] >= cutoff]
+    deduped = _dedupe(recent)
+    for it in deduped:
+        it["score"] = _score(it)
+    deduped.sort(key=lambda x: x["score"], reverse=True)
+    return deduped[: cfg.top_n]
+
+
+# 离线演示样本（无网络 / RSS 不可用时可用 --demo 跑通全流程）
+SAMPLE_ITEMS = [
+    {
+        "title": "《英雄联盟》14.19 版本更新：打野装备大改，多个热门英雄削弱",
+        "link": "https://example.com/lol-1419",
+        "summary": "本次版本对打野刀与野区经济做出调整，盲僧、赵信等前期打野遭到削弱，中路法师小幅增强。",
+        "published": _now(),
+        "source": "演示·游民星空",
+    },
+    {
+        "title": "米哈游新作曝光：开放世界射击游戏《代号：雷索纳斯》开启测试",
+        "link": "https://example.com/rezones",
+        "summary": "官方放出首支实机演示，强调阵容搭配与卡牌机制结合的玩法，预约量已破百万。",
+        "published": _now(),
+        "source": "演示·3DM",
+    },
+    {
+        "title": "Steam 秋季特卖明日开启，数千款游戏参与折扣",
+        "link": "https://example.com/steam-autumn",
+        "summary": " Valve 宣布秋季特卖将于本周五凌晨开始，多款 3A 大作迎来年内最低价。",
+        "published": _now(),
+        "source": "演示·机核",
+    },
+]

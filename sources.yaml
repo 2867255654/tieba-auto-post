@@ -1,0 +1,26 @@
+# 游戏资讯来源配置
+# type=rss    直接 RSS 地址（已验证可用的放前面）
+# type=rsshub 由 RSSHUB_BASE + route 拼出。公开实例（rsshub.app 等）经常超时，
+#            建议自建 RSSHub 并把 .env 里的 RSSHUB_BASE 指向它
+# 跑不通的源会被自动跳过（单源超时隔离），不影响整体；至少保一个可用源即可。
+sources:
+  # —— 已验证可用 ——
+  - name: 机核 gcores
+    type: rss
+    url: https://www.gcores.com/rss
+
+  # —— RSSHub 路由（需可用实例；默认 rsshub.app 常超时，建议自建）——
+  - name: 3DM
+    type: rsshub
+    route: /3dm/news
+  - name: 游民星空
+    type: rsshub
+    route: /gamersky/news
+  - name: 小黑盒
+    type: rsshub
+    route: /xiaoheihe/news
+
+  # —— 其他可自选直接 RSS（按需启用）——
+  # - name: 篝火营地
+  #   type: rss
+  #   url: https://gouhuo.qq.com/rss   # 当前返回格式异常，暂不可用

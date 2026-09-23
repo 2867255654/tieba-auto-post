@@ -1,0 +1,58 @@
+# 贴吧游戏资讯每日摘抄 —— 云端定时运行
+# 触发：每天定时（默认北京时间 08:00）+ 手动 workflow_dispatch
+# 安全：默认草稿模式（POST_MODE 未开），敏感项（BDUSS / LLM_API_KEY）走加密 Secrets，绝不进仓库。
+
+name: 贴吧游戏资讯每日摘抄
+
+on:
+  schedule:
+    # GitHub Actions 时区固定为 UTC。换算：北京 08:00 = UTC 00:00
+    # 北京 09:00 -> '0 1 * * *'；北京 20:00 -> '0 12 * * *'
+    - cron: '0 0 * * *'
+  workflow_dispatch: {}   # 允许在 Actions 页面手动点「Run workflow」
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 运行摘抄流水线
+        env:
+          # 普通配置项（非敏感，可用 Repository variables 覆盖，也可直接走默认值）
+          FORUM_NAME: ${{ vars.FORUM_NAME || '抗压背锅吧' }}
+          TOP_N: ${{ vars.TOP_N || '8' }}
+          MAX_AGE_HOURS: ${{ vars.MAX_AGE_HOURS || '24' }}
+          RSSHUB_BASE: ${{ vars.RSSHUB_BASE || 'https://rsshub.app' }}
+          DELAY_SECONDS: ${{ vars.DELAY_SECONDS || '3' }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL || 'https://api.openai.com/v1' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'gpt-4o-mini' }}
+          # 敏感项（账号钥匙 / API 密钥）走加密 Secrets
+          BDUSS: ${{ secrets.BDUSS }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          # 发帖开关：默认 '0'（草稿预览）。要真发，在 Secrets 设 POST_MODE=1 并填 BDUSS
+          POST_MODE: ${{ secrets.POST_MODE || '0' }}
+        run: python main.py
+
+      - name: 上传运行产物（草稿 / 运行日志，不含任何密钥）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tieba-digest-output
+          path: output/
+          retention-days: 7

@@ -1,0 +1,13 @@
+# 保护账号钥匙：绝不要把含 BDUSS 的 .env 提交到仓库
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 本地运行产物（云端产物走 Actions Artifact）
+output/
