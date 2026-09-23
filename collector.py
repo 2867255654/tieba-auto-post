@@ -123,7 +123,19 @@ def collect() -> list:
         if stype == "rss":
             url = src.get("url", "")
         elif stype == "rsshub":
-            url = cfg.rsshub_base.rstrip("/") + src.get("route", "")
+            route = src.get("route", "")
+            # 多实例兜底：依次尝试每个 RSSHub 实例，首个返回条目的即用；
+            # 你自建的实例应排在 RSSHUB_BASE 列表首位，公开兜底随后。
+            got = False
+            for base in cfg.rsshub_bases:
+                url = base + route
+                items = _fetch_rss(url, name, game_source=bool(src.get("game_source", False)))
+                if items:
+                    raw += items
+                    got = True
+                    break
+            if not got:
+                print(f"[collector] 所有 RSSHub 实例均不可用，跳过路由 {route}")
         else:
             continue
         if not url:

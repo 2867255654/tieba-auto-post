@@ -1,16 +1,17 @@
 # 游戏资讯来源配置
 # type=rss    直接 RSS 地址
-# type=rsshub 由 RSSHUB_BASE + route 拼出（公开实例常超时，建议自建）
+# type=rsshub 由 RSSHUB_BASE（可逗号分隔多个实例，自建实例置首位）+ route 拼出
 #
 # game_source: true  -> 该源本身是游戏垂直媒体，条目天然游戏相关。
 #   作用：无论中英文，打分都给基础分，避免被「中文游戏关键词」过滤；
 #   英文游戏媒体（PCGamer/GameSpot 等）靠这个标记进入候选。
 #
-# 跑不通的源会被自动跳过（单源超时隔离），不影响整体。
-# 以下源均已在 2026-09-23 验证可用（GitHub 海外 runner 与本地均可达）。
+# 跑不通的源会被自动跳过（单源超时隔离 + RSSHub 多实例兜底），不影响整体。
+# 国内游戏站（3DM/游民/小黑盒/A9VG/indienova）走 RSSHub 路由，需可用实例；
+# 公开实例常超时，强烈建议自建 RSSHub 并把地址放 RSSHUB_BASE 首位。
 
 sources:
-  # —— 国内（中文）——
+  # —— 国内（中文，直连 RSS）——
   - name: 机核 gcores
     type: rss
     url: https://www.gcores.com/rss
@@ -50,24 +51,38 @@ sources:
     url: https://www.purexbox.com/feeds/latest
     game_source: true
 
-  # —— RSSHub 路由（需可用实例；默认 rsshub.app 常超时，建议自建并把 RSSHUB_BASE 指向它）——
-  - name: 3DM
-    type: rsshub
-    route: /3dm/news
-    game_source: true
+  # —— 国内游戏站（走 RSSHub 路由；路由名以新版 RSSHub 为准，已实测核对）——
   - name: 游民星空
     type: rsshub
     route: /gamersky/news
+    game_source: true
+  - name: 3DM
+    type: rsshub
+    route: /3dmgame/news        # 注意：新版 RSSHub 为 /3dmgame/news，旧 /3dm/news 已失效
     game_source: true
   - name: 小黑盒
     type: rsshub
     route: /xiaoheihe/news
     game_source: true
+  - name: A9VG电玩部落
+    type: rsshub
+    route: /a9vg/a9vg
+    game_source: true
+  - name: indienova独立游戏
+    type: rsshub
+    route: /indienova/news
+    game_source: true
 
-  # —— 暂不可用（保留参考，需要时取消注释）——
+  # —— 暂不可用 / 待确认（保留参考，需要时取消注释）——
   # - name: IGN
   #   type: rss
   #   url: https://feeds.ign.com/articles   # 当前 XML 解析失败
   # - name: 篝火营地
   #   type: rss
   #   url: https://gouhuo.qq.com/rss         # 返回格式异常
+  # - name: 暴雪 Blizzard
+  #   type: rsshub
+  #   route: /blizzard/news                  # 厂商官方新闻，魔兽/OW 向；需实例支持
+  # - name: 4Gamers
+  #   type: rsshub
+  #   route: /4gamers/category/0             # 台湾游戏媒体；category 需查具体 ID

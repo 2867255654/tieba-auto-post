@@ -47,8 +47,15 @@ class Config:
     llm_api_key: str = os.getenv("LLM_API_KEY", "")
     llm_model: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
-    # RSSHub 实例（公开实例不稳定，建议自建）
-    rsshub_base: str = os.getenv("RSSHUB_BASE", "https://rsshub.app")
+    # RSSHub 实例地址列表（逗号分隔）。建议把【你自建的实例放第一个】，
+    # 其后跟公开兜底实例；任一可用即可。公开实例常超时，强烈建议自建并置首位。
+    rsshub_bases: list = field(
+        default_factory=lambda: [
+            s.strip().rstrip("/")
+            for s in (os.getenv("RSSHUB_BASE") or "https://rsshub.app").split(",")
+            if s.strip()
+        ]
+    )
 
     # 发帖前随机延迟上限（秒），降低风控命中
     delay_seconds: float = float(os.getenv("DELAY_SECONDS", "3"))
