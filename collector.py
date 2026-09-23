@@ -53,7 +53,7 @@ def _parse_date(entry: dict) -> datetime:
     return _now()
 
 
-def _fetch_rss(url: str, source_name: str, timeout: int = 12) -> list:
+def _fetch_rss(url: str, source_name: str, game_source: bool = False, timeout: int = 12) -> list:
     items = []
     try:
         # 单源超时隔离：避免某个源卡住拖垮整体
@@ -79,6 +79,7 @@ def _fetch_rss(url: str, source_name: str, timeout: int = 12) -> list:
                 "summary": summary,
                 "published": published,
                 "source": source_name,
+                "game_source": game_source,
             }
         )
     return items
@@ -101,9 +102,12 @@ def _dedupe(items: list) -> list:
     return out
 
 
-def _score(it: str) -> float:
+def _score(it: dict) -> float:
     age_h = (_now() - it["published"]).total_seconds() / 3600
     s = max(0.0, float(cfg.max_age_hours) - age_h)  # 新鲜度
+    # 游戏垂直媒体源（无论中英文）条目即游戏相关，给基础分，避免被语言过滤
+    if it.get("game_source"):
+        s += 6.0
     text = it["title"] + it["summary"]
     for kw in GAME_KEYWORDS:
         if kw.lower() in text.lower():
@@ -124,7 +128,7 @@ def collect() -> list:
             continue
         if not url:
             continue
-        raw += _fetch_rss(url, name)
+        raw += _fetch_rss(url, name, game_source=bool(src.get("game_source", False)))
 
     cutoff = _now() - timedelta(hours=cfg.max_age_hours)
     recent = [it for it in raw if it["published"] >= cutoff]
@@ -132,7 +136,19 @@ def collect() -> list:
     for it in deduped:
         it["score"] = _score(it)
     deduped.sort(key=lambda x: x["score"], reverse=True)
-    return deduped[: cfg.top_n]
+    # 跨源均衡：单源最多取 max(2, top_n//2) 条，避免一个大源霸屏
+    max_per = max(2, cfg.top_n // 2)
+    per_count: dict = {}
+    balanced = []
+    for it in deduped:
+        src = it["source"]
+        if per_count.get(src, 0) >= max_per:
+            continue
+        per_count[src] = per_count.get(src, 0) + 1
+        balanced.append(it)
+        if len(balanced) >= cfg.top_n:
+            break
+    return balanced
 
 
 # 离线演示样本（无网络 / RSS 不可用时可用 --demo 跑通全流程）

@@ -1,26 +1,73 @@
 # 游戏资讯来源配置
-# type=rss    直接 RSS 地址（已验证可用的放前面）
-# type=rsshub 由 RSSHUB_BASE + route 拼出。公开实例（rsshub.app 等）经常超时，
-#            建议自建 RSSHub 并把 .env 里的 RSSHUB_BASE 指向它
-# 跑不通的源会被自动跳过（单源超时隔离），不影响整体；至少保一个可用源即可。
+# type=rss    直接 RSS 地址
+# type=rsshub 由 RSSHUB_BASE + route 拼出（公开实例常超时，建议自建）
+#
+# game_source: true  -> 该源本身是游戏垂直媒体，条目天然游戏相关。
+#   作用：无论中英文，打分都给基础分，避免被「中文游戏关键词」过滤；
+#   英文游戏媒体（PCGamer/GameSpot 等）靠这个标记进入候选。
+#
+# 跑不通的源会被自动跳过（单源超时隔离），不影响整体。
+# 以下源均已在 2026-09-23 验证可用（GitHub 海外 runner 与本地均可达）。
+
 sources:
-  # —— 已验证可用 ——
+  # —— 国内（中文）——
   - name: 机核 gcores
     type: rss
     url: https://www.gcores.com/rss
+    game_source: true
 
-  # —— RSSHub 路由（需可用实例；默认 rsshub.app 常超时，建议自建）——
+  # —— 海外游戏媒体（英文；GitHub 海外 runner 稳定可达）——
+  - name: PCGamer
+    type: rss
+    url: https://www.pcgamer.com/rss/
+    game_source: true
+  - name: GameSpot
+    type: rss
+    url: https://www.gamespot.com/feeds/news/
+    game_source: true
+  - name: Eurogamer
+    type: rss
+    url: https://www.eurogamer.net/feed
+    game_source: true
+  - name: RockPaperShotgun
+    type: rss
+    url: https://www.rockpapershotgun.com/feed/
+    game_source: true
+  - name: VG247
+    type: rss
+    url: https://www.vg247.com/feed
+    game_source: true
+  - name: PushSquare          # PlayStation 向
+    type: rss
+    url: https://www.pushsquare.com/feeds/latest
+    game_source: true
+  - name: NintendoLife        # 任天堂向
+    type: rss
+    url: https://www.nintendolife.com/feeds/latest
+    game_source: true
+  - name: PureXbox            # Xbox 向
+    type: rss
+    url: https://www.purexbox.com/feeds/latest
+    game_source: true
+
+  # —— RSSHub 路由（需可用实例；默认 rsshub.app 常超时，建议自建并把 RSSHUB_BASE 指向它）——
   - name: 3DM
     type: rsshub
     route: /3dm/news
+    game_source: true
   - name: 游民星空
     type: rsshub
     route: /gamersky/news
+    game_source: true
   - name: 小黑盒
     type: rsshub
     route: /xiaoheihe/news
+    game_source: true
 
-  # —— 其他可自选直接 RSS（按需启用）——
+  # —— 暂不可用（保留参考，需要时取消注释）——
+  # - name: IGN
+  #   type: rss
+  #   url: https://feeds.ign.com/articles   # 当前 XML 解析失败
   # - name: 篝火营地
   #   type: rss
-  #   url: https://gouhuo.qq.com/rss   # 当前返回格式异常，暂不可用
+  #   url: https://gouhuo.qq.com/rss         # 返回格式异常
