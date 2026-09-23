@@ -29,8 +29,8 @@ git push -u origin main
 ## 三、可选：用 Repository variables 覆盖默认配置
 
 **Settings → Secrets and variables → Actions → Variables**，可覆盖：
-`FORUM_NAME`、`TOP_N`、`MAX_AGE_HOURS`、`RSSHUB_BASE`、`DELAY_SECONDS`、`LLM_BASE_URL`、`LLM_MODEL`。
-不设则使用代码里的默认值（目标吧：抗压背锅吧，每天 8 条，24 小时窗口）。
+`FORUM_NAMES`（逗号分隔的多个游戏吧，如 `抗压背锅吧,英雄联盟吧,原神吧`）、`TOP_N`、`MAX_AGE_HOURS`、`RSSHUB_BASE`、`DELAY_SECONDS`、`LLM_BASE_URL`、`LLM_MODEL`。
+不设则使用代码里的默认值（目标吧：抗压背锅吧，每天 8 条，24 小时窗口；可填多个游戏吧一起发）。
 
 ## 四、运行与查看
 

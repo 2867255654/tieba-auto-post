@@ -87,7 +87,7 @@ def _fallback_digest(items: list, forum: str, n: int):
 
 
 def generate_digest(items: list, forum_name: str | None = None, top_n: int | None = None):
-    forum = forum_name or cfg.forum_name
+    forum = forum_name or cfg.forum_names[0]
     n = top_n or cfg.top_n
     if cfg.llm_api_key:
         try:

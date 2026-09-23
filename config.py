@@ -22,8 +22,15 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 @dataclass
 class Config:
-    # 目标吧：热门游戏吧，默认抗压背锅吧
-    forum_name: str = os.getenv("FORUM_NAME", "抗压背锅吧")
+    # 目标吧列表（热门游戏吧，逗号分隔）。默认仅抗压背锅吧。
+    # 兼容旧的 FORUM_NAME 单值写法；FORUM_NAMES 优先。
+    forum_names: list = field(
+        default_factory=lambda: [
+            s.strip()
+            for s in (os.getenv("FORUM_NAMES") or os.getenv("FORUM_NAME") or "抗压背锅吧").split(",")
+            if s.strip()
+        ]
+    )
 
     # 贴吧登录态（仅 POST_MODE=1 时需要）。从浏览器 F12 → Cookie 复制 BDUSS 字段
     bduss: str = os.getenv("BDUSS", "")

@@ -35,7 +35,7 @@ jobs:
       - name: 运行摘抄流水线
         env:
           # 普通配置项（非敏感，可用 Repository variables 覆盖，也可直接走默认值）
-          FORUM_NAME: ${{ vars.FORUM_NAME || '抗压背锅吧' }}
+          FORUM_NAMES: ${{ vars.FORUM_NAMES || '抗压背锅吧' }}
           TOP_N: ${{ vars.TOP_N || '8' }}
           MAX_AGE_HOURS: ${{ vars.MAX_AGE_HOURS || '24' }}
           RSSHUB_BASE: ${{ vars.RSSHUB_BASE || 'https://rsshub.app' }}

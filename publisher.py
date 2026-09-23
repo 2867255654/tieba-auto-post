@@ -83,12 +83,13 @@ def post_thread(
 
 
 def publish(title: str, content: str, forum_name: str | None = None, dry_run: bool | None = None):
-    forum = forum_name or cfg.forum_name
+    forum = forum_name or cfg.forum_names[0]
     should_post = (cfg.post_mode if dry_run is None else (not dry_run)) and bool(cfg.bduss)
 
     if not should_post:
         ts = time.strftime("%Y%m%d_%H%M%S")
-        path = OUTPUT_DIR / f"draft_{ts}.txt"
+        safe = re.sub(r'[\\/:*?"<>|]', "_", forum)
+        path = OUTPUT_DIR / f"draft_{safe}_{ts}.txt"
         path.write_text(
             f"吧名：{forum}\n标题：{title}\n\n{content}",
             encoding="utf-8",
