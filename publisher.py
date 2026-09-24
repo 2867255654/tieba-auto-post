@@ -100,14 +100,32 @@ def publish(title: str, content: str, forum_name: str | None = None, dry_run: bo
         return {"dry_run": True, "path": str(path)}
 
     # 真正发帖
-    session = requests.Session()
-    tbs = get_tbs(session, cfg.bduss)
-    fid = get_fid(session, cfg.bduss, forum)
-    if not fid:
-        raise RuntimeError("无法获取 fid，请检查论坛名或登录态（BDUSS）")
-    if not tbs:
-        raise RuntimeError("无法获取 tbs（CSRF 令牌），请检查 BDUSS 是否有效")
-    time.sleep(random.uniform(1, max(1.0, cfg.delay_seconds)))
-    res = post_thread(session, cfg.bduss, fid, forum, title, content, tbs)
-    print(f"[publisher] 发帖响应：{res}")
-    return res
+    try:
+        session = requests.Session()
+        tbs = get_tbs(session, cfg.bduss)
+        fid = get_fid(session, cfg.bduss, forum)
+        if not fid:
+            raise RuntimeError("无法获取 fid，请检查论坛名或登录态（BDUSS）")
+        if not tbs:
+            raise RuntimeError("无法获取 tbs（CSRF 令牌），请检查 BDUSS 是否有效")
+        time.sleep(random.uniform(1, max(1.0, cfg.delay_seconds)))
+        res = post_thread(session, cfg.bduss, fid, forum, title, content, tbs)
+        print(f"[publisher] 发帖响应：{res}")
+        # 把响应也存到本地日志
+        (OUTPUT_DIR / f"post_response_{time.strftime('%Y%m%d_%H%M%S')}.txt").write_text(
+            str(res), encoding="utf-8"
+        )
+        return res
+    except Exception as e:  # noqa: BLE001
+        err_msg = f"[publisher] 真发失败（{forum}）：{type(e).__name__}: {e}"
+        print(err_msg)
+        # 失败时仍保存草稿，方便人工补发
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[\\/:*?"<>|]', "_", forum)
+        fallback = OUTPUT_DIR / f"draft_{safe}_{ts}.txt"
+        fallback.write_text(
+            f"吧名：{forum}\n标题：{title}\n\n{content}",
+            encoding="utf-8",
+        )
+        print(f"[publisher] 已保存失败草稿：{fallback}")
+        return {"error": str(e), "forum": forum}
