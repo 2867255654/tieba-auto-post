@@ -8,6 +8,7 @@
 建议配合定时任务（cron / 任务计划 / GitHub Actions）每天跑一次。
 """
 import json
+import os
 import random
 import sys
 import time
@@ -22,8 +23,17 @@ def main():
     demo = "--demo" in sys.argv
     force_post = "--post" in sys.argv
 
+    # 目标吧选择：默认从 FORUM_NAMES 随机挑 1 个发（更稳、更像真人）；
+    # 设环境变量 FORUM_PICK_ALL=1 才全发（保留原批量行为）
+    pick_all = os.getenv("FORUM_PICK_ALL", "0") == "1"
+    if pick_all:
+        target_forums = list(cfg.forum_names)
+    else:
+        target_forums = [random.choice(cfg.forum_names)]
+
     mode = "发帖" if (cfg.post_mode and cfg.bduss and not demo) else "草稿预览"
-    print(f"=== 贴吧游戏资讯摘抄 | 目标吧：{', '.join(cfg.forum_names)} | 模式：{mode} ===")
+    pick_desc = "随机1吧" if not pick_all else f"全{len(target_forums)}吧"
+    print(f"=== 贴吧游戏资讯摘抄 | 目标：{pick_desc} | 模式：{mode} ===")
 
     items = SAMPLE_ITEMS if demo else collect()
     print(f"[collect] 命中 {len(items)} 条")
@@ -40,11 +50,12 @@ def main():
     dry_run = None if not force_post else (not (cfg.post_mode and cfg.bduss))
     will_post = mode == "发帖"
     results = {}
-    for idx, forum in enumerate(cfg.forum_names):
+    for idx, forum in enumerate(target_forums):
         print(f"\n=== 发往：{forum} ===")
         res = publish(title, body, forum_name=forum, dry_run=dry_run)
         results[forum] = res
-        if will_post and idx < len(cfg.forum_names) - 1:
+        # 仅「全发模式」才需要多吧间隔；随机单吧无需间隔
+        if will_post and pick_all and idx < len(target_forums) - 1:
             gap = random.uniform(15, 45)
             print(f"[main] 多吧间隔 {gap:.0f}s，降低风控")
             time.sleep(gap)
