@@ -45,7 +45,12 @@ jobs:
           # 敏感项（账号钥匙 / API 密钥）走加密 Secrets
           BDUSS: ${{ secrets.BDUSS }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          # 发帖开关：默认 '0'（草稿预览）。要真发，在 Secrets 设 POST_MODE=1 并填 BDUSS
+          # 贴吧登录态补充 Cookie（本地验证发帖必需，缺一不可）
+          STOKEN: ${{ secrets.STOKEN }}
+          BDUSS_BFESS: ${{ secrets.BDUSS_BFESS }}
+          BAIDUID: ${{ secrets.BAIDUID }}
+          BAIDUID_BFESS: ${{ secrets.BAIDUID_BFESS }}
+          # 发帖开关：默认 '0'（草稿预览）。要真发，在 Secrets 设 POST_MODE=1 并填 BDUSS 及上述 Cookie
           POST_MODE: ${{ secrets.POST_MODE || '0' }}
         run: python main.py
 

@@ -1,45 +1,45 @@
-@echo off
-REM ============================================================
-REM 贴吧游戏资讯每日摘抄 - 本地运行脚本
-REM 用法：
-REM   1. 双击本文件 = 立即运行一次（采集 + 摘抄 + [发帖]）
-REM   2. 配合「Windows 任务计划程序」可实现每天自动跑
-REM 配置全在同目录的 .env 里（含 BDUSS / FORUM_NAMES / POST_MODE 等）
-REM ============================================================
+@echo on
 setlocal
+REM Auto mode: Task Scheduler passes /auto argument, no pause at end
+if "%1"=="/auto" set "AUTO=1"
 
-REM 切换到本文件所在目录（项目根），保证相对路径正确
+REM Switch to this bat's directory (project root)
 cd /d "%~dp0"
 
-REM 托管 Python 解释器（WorkBuddy 默认 venv）
-set "PY=%USERPROFILE%\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+REM Redirect all following output to a log file for debugging
+echo [START] %date% %time% > "%~dp0run_log.txt" 2>&1
 
-REM —— 可选：本地采集海外源（PCGamer/GameSpot 等）若慢或空，可走代理 ——
-REM 取消下面两行注释，并改成你的代理端口（Clash Verge 通常 7897 / V2RayN 10809）
+REM Hard-coded absolute Python path. Do NOT use a custom variable here;
+REM Task Scheduler resolves variables differently and may turn "python.exe main.py"
+REM into a broken command like "n.py".
+if not exist "C:\Users\yuanliang\.workbuddy\binaries\python\envs\default\Scripts\python.exe" (
+    echo [ERROR] Python not found: >> "%~dp0run_log.txt" 2>&1
+    echo   C:\Users\yuanliang\.workbuddy\binaries\python\envs\default\Scripts\python.exe >> "%~dp0run_log.txt" 2>&1
+    pause
+    exit /b 1
+) >> "%~dp0run_log.txt" 2>&1
+
+REM Optional proxy for overseas RSS sources (PCGamer, GameSpot, etc.)
+REM Uncomment and set to your proxy port, e.g. Clash Verge 7897 / V2RayN 10809
 REM set "HTTP_PROXY=http://127.0.0.1:7897"
 REM set "HTTPS_PROXY=http://127.0.0.1:7897"
 
-if not exist "%PY%" (
-    echo [错误] 找不到 Python 解释器：
-    echo   %PY%
-    echo 请确认 WorkBuddy 托管 Python 已安装（或改用你自己的 python 路径）。
-    pause
-    exit /b 1
-)
-
-echo ================================================
-echo   贴吧游戏资讯摘抄 - 开始运行
-echo   时间：%date% %time%
-echo ================================================
-"%PY%" main.py
+echo ================================================ >> "%~dp0run_log.txt" 2>&1
+echo   Tieba Game Digest - starting >> "%~dp0run_log.txt" 2>&1
+echo   Time: %date% %time% >> "%~dp0run_log.txt" 2>&1
+echo ================================================ >> "%~dp0run_log.txt" 2>&1
+"C:\Users\yuanliang\.workbuddy\binaries\python\envs\default\Scripts\python.exe" main.py >> "%~dp0run_log.txt" 2>&1
 set "RC=%errorlevel%"
 
-echo ================================================
+echo ================================================ >> "%~dp0run_log.txt" 2>&1
 if %RC% equ 0 (
-    echo   运行结束：成功（退出码 0）
+    echo   Finished: success (exit code 0) >> "%~dp0run_log.txt" 2>&1
 ) else (
-    echo   运行结束：异常（退出码 %RC%）
+    echo   Finished: error (exit code %RC%) >> "%~dp0run_log.txt" 2>&1
 )
-echo ================================================
-if %RC% neq 0 pause
+echo ================================================ >> "%~dp0run_log.txt" 2>&1
+echo [END] RC=%RC% %date% %time% >> "%~dp0run_log.txt" 2>&1
+
+REM Pause only in manual mode; auto mode exits immediately
+if not defined AUTO pause
 endlocal

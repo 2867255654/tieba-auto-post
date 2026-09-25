@@ -53,13 +53,21 @@ def _parse_date(entry: dict) -> datetime:
     return _now()
 
 
+def _download_parse(url: str, timeout: int):
+    """用 requests 带超时下载，再交给 feedparser 解析。
+    这样能真正控制网络超时（feedparser.parse(url) 内部无超时，会卡死）。"""
+    resp = requests.get(url, headers=HEADERS, timeout=timeout)
+    resp.encoding = resp.apparent_encoding or "utf-8"
+    return feedparser.parse(resp.content)
+
+
 def _fetch_rss(url: str, source_name: str, game_source: bool = False, timeout: int = 12) -> list:
     items = []
     try:
         # 单源超时隔离：避免某个源卡住拖垮整体
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(feedparser.parse, url)
-            data = future.result(timeout=timeout)
+            future = ex.submit(_download_parse, url, timeout)
+            data = future.result(timeout=timeout + 3)
     except Exception as e:  # noqa: BLE001
         print(f"[collector] RSS 超时/失败 {url}: {e}")
         return items
@@ -115,32 +123,55 @@ def _score(it: dict) -> float:
     return s
 
 
+def _fetch_rsshub_chain(urls: list, name: str, game_source: bool) -> list:
+    """依次尝试每个 RSSHub 实例，返回首个有结果的条目（并行采集时源级别串行 base）。"""
+    for url in urls:
+        items = _fetch_rss(url, name, game_source=game_source)
+        if items:
+            return items
+    print(f"[collector] 所有 RSSHub 实例均不可用，跳过路由 {name}")
+    return []
+
+
 def collect() -> list:
-    raw = []
+    # 把一个 source 展开成一组 (name, game_source, urls) 任务；
+    # rsshub 源会展开成多个 base 候选（base 之间仍串行尝试，但不同源之间并行）。
+    jobs = []
     for src in cfg.sources:
         stype = src.get("type", "rss")
         name = src.get("name", "unknown")
+        game_source = bool(src.get("game_source", False))
         if stype == "rss":
             url = src.get("url", "")
+            if url:
+                jobs.append((name, game_source, "rss", [url]))
         elif stype == "rsshub":
             route = src.get("route", "")
-            # 多实例兜底：依次尝试每个 RSSHub 实例，首个返回条目的即用；
-            # 你自建的实例应排在 RSSHUB_BASE 列表首位，公开兜底随后。
-            got = False
-            for base in cfg.rsshub_bases:
-                url = base + route
-                items = _fetch_rss(url, name, game_source=bool(src.get("game_source", False)))
+            if route and cfg.rsshub_bases:
+                urls = [base + route for base in cfg.rsshub_bases]
+                jobs.append((name, game_source, "rsshub", urls))
+        # 其他类型忽略
+
+    raw = []
+    if not jobs:
+        return raw
+
+    # 并行采集：整体耗时取决于最慢的单个源，而不是所有源串行叠加
+    workers = min(20, len(jobs))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = []
+        for name, game_source, stype, urls in jobs:
+            if stype == "rsshub":
+                futures.append(ex.submit(_fetch_rsshub_chain, urls, name, game_source))
+            else:
+                futures.append(ex.submit(_fetch_rss, urls[0], name, game_source))
+        for f in concurrent.futures.as_completed(futures):
+            try:
+                items = f.result()
                 if items:
                     raw += items
-                    got = True
-                    break
-            if not got:
-                print(f"[collector] 所有 RSSHub 实例均不可用，跳过路由 {route}")
-        else:
-            continue
-        if not url:
-            continue
-        raw += _fetch_rss(url, name, game_source=bool(src.get("game_source", False)))
+            except Exception as e:  # noqa: BLE001
+                print(f"[collector] 源任务异常：{e}")
 
     cutoff = _now() - timedelta(hours=cfg.max_age_hours)
     recent = [it for it in raw if it["published"] >= cutoff]

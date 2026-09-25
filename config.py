@@ -32,8 +32,16 @@ class Config:
         ]
     )
 
-    # 贴吧登录态（仅 POST_MODE=1 时需要）。从浏览器 F12 → Cookie 复制 BDUSS 字段
+    # 贴吧登录态（仅 POST_MODE=1 时需要）。从浏览器 F12 → Cookie 复制对应字段
     bduss: str = os.getenv("BDUSS", "")
+    # STOKEN：部分账号发帖接口还需要这个 Cookie
+    stoken: str = os.getenv("STOKEN", "")
+    # BDUSS_BFESS：百度新版登录态补充 Cookie，和 BDUSS 在同一列表里，发帖时可能需要
+    bduss_bfess: str = os.getenv("BDUSS_BFESS", "")
+    # BAIDUID：百度通用设备/会话 Cookie，很多页面接口需要它才能返回正常内容而不是跳转
+    baiduid: str = os.getenv("BAIDUID", "")
+    # BAIDUID_BFESS：新版百度设备 Cookie；若浏览器里没有 BAIDUID 而有这个，值可填到 BAIDUID 里
+    baiduid_bfess: str = os.getenv("BAIDUID_BFESS", "")
 
     # 发帖开关：默认 False（草稿预览），绝不自动发帖
     post_mode: bool = os.getenv("POST_MODE", "0") in ("1", "true", "True", "yes")

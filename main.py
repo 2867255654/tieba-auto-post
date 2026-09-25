@@ -7,10 +7,21 @@
 
 建议配合定时任务（cron / 任务计划 / GitHub Actions）每天跑一次。
 """
+import sys
+
+# Windows 控制台默认 GBK 编码，帖子正文里的 emoji 等字符会导致 print 时抛
+# UnicodeEncodeError，使进程退出码非零、定时任务被判失败。把 stdout/stderr 的
+# 错误处理改成 replace，无法编码的字符替换为 ?，流程不再因偶发字符而中断。
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+        sys.stderr.reconfigure(errors="replace")
+except Exception:  # noqa: BLE001
+    pass
+
 import json
 import os
 import random
-import sys
 import time
 
 from collector import SAMPLE_ITEMS, collect
@@ -47,7 +58,12 @@ def main():
     title, body = generate_digest(items)
     print(f"\n[digest] 生成标题：{title}\n")
 
-    dry_run = None if not force_post else (not (cfg.post_mode and cfg.bduss))
+    if demo:
+        dry_run = True  # demo 模式强制草稿，绝不真发
+    elif force_post:
+        dry_run = not (cfg.post_mode and cfg.bduss)
+    else:
+        dry_run = None  # 由 publisher 根据 cfg 自行判断
     will_post = mode == "发帖"
     results = {}
     for idx, forum in enumerate(target_forums):

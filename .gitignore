@@ -11,3 +11,10 @@ venv/
 
 # 本地运行产物（云端产物走 Actions Artifact）
 output/
+
+# 本地运行日志（含发帖内容，不进仓库）
+run_log.txt
+
+# 本地 Windows 任务计划辅助脚本（硬编码本机路径，不通用）
+setup_task.bat
+setup_task.ps1
