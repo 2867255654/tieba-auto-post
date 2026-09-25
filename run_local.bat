@@ -8,7 +8,10 @@ cd /d "%~dp0"
 
 REM Timestamped archive log so we can compare manual vs Task Scheduler runs
 set "PY=C:\Users\yuanliang\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
-for /f "usebackq delims=" %%i in (`"%PY%" -c "import datetime; print(datetime.datetime.now().strftime('%%Y%%m%%d_%%H%%M%%S'))"`) do set "TS=%%i"
+"%PY%" -c "import datetime; open('run_log.ts.tmp','w',encoding='utf-8').write(datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))" >nul 2>&1
+set /p TS=<run_log.ts.tmp 2>nul
+del /f run_log.ts.tmp 2>nul
+if not defined TS set "TS=unknown"
 
 REM Latest log remains run_log.txt; older runs are archived as run_log_YYYYMMDD_HHMMSS.txt
 set "LOG=%~dp0run_log.txt"
