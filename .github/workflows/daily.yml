@@ -5,10 +5,10 @@
 name: 贴吧游戏资讯每日摘抄
 
 on:
-  schedule:
-    # GitHub Actions 时区固定为 UTC。换算：北京 08:00 = UTC 00:00
-    - cron: '0 0 * * *'     # 北京 08:00（UTC 00:00）
-    # 想一天多次：加一行即可，如北京 20:00 -> 再加 '- cron: ''0 12 * * *'''
+  # 已关闭每日定时：GitHub 官方 runner 是海外 IP，被百度雷达反爬拦截，无法真发帖。
+  # 日常发帖走本地 Windows 任务计划程序（国内 IP）。保留手动触发用于测试/云端草稿备份。
+  # schedule:
+  #   - cron: '0 0 * * *'   # 北京 08:00（UTC 00:00）
   workflow_dispatch: {}   # 允许在 Actions 页面手动点「Run workflow」
 
 permissions:
