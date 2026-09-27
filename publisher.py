@@ -55,6 +55,8 @@ def _cookies() -> dict:
     baiduid = cfg.baiduid or cfg.baiduid_bfess
     if baiduid:
         cookies["BAIDUID"] = baiduid
+    if cfg.baidu_wise_uid:
+        cookies["BAIDU_WISE_UID"] = cfg.baidu_wise_uid
     return cookies
 
 
@@ -160,9 +162,14 @@ def _fid_via_share_api(session: requests.Session, encoded: str, referer: str):
             )
             print(f"[publisher] share_api {path} status: {r.status_code}")
             raw = r.text.strip()
+            # 处理 JSONP 包装：callback({...}) 或 ({...})
             if raw.startswith("(") and raw.endswith(")"):
                 raw = raw[1:-1]
-            m = re.search(r'\{.*\}', raw, re.S)
+            # 去掉常见 callback 前缀/后缀
+            raw = re.sub(r'^[\w.]+\(', '', raw)
+            raw = re.sub(r'\);?$', '', raw)
+            # 非贪婪匹配最内层 JSON 对象
+            m = re.search(r'\{.*?\}', raw, re.S)
             if not m:
                 continue
             data = json.loads(m.group(0))
@@ -188,35 +195,50 @@ def _fid_via_mobile(session: requests.Session, encoded: str, referer: str):
     """移动端接口，干净移动头返回 JSON 风格页面；顺带拿规范吧名。"""
     fid = None
     canonical = None
-    try:
-        mo_url = f"{TIEBA}/mo/q/fid?kw={encoded}"
-        # 不要用 PC 的 _headers()，否则 Sec-Fetch-* / sec-ch-ua 与移动端 UA 冲突，会返回通用页
-        mo_headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Referer": f"{TIEBA}/",
-        }
-        r = session.get(mo_url, headers=mo_headers, cookies=_cookies(), timeout=15)
-        print(f"[publisher] get_fid mo status: {r.status_code}, url: {r.url}")
-        raw = r.text.strip()
-        mf = re.search(r'"forum_id"\s*:\s*(\d+)', raw) or re.search(r'"fid"\s*:\s*(\d+)', raw)
-        if mf:
-            fid = int(mf.group(1))
-            print(f"[publisher] get_fid mo OK: {fid}")
-        # 移动端页面里常见的规范吧名/标题
-        mt = re.search(r'"forum_name"\s*:\s*"([^"]+)"', raw) or re.search(
-            r'<title>([^<]+)</title>', raw, re.I
-        )
-        if mt:
-            name = _canonical_name_from_title(mt.group(1))
-            if name:
-                canonical = name
-    except Exception as e:  # noqa: BLE001
-        print(f"[publisher] get_fid mo failed: {type(e).__name__}: {e}")
+    # 多个移动入口：部分高热度吧对特定路径/参数风控强度不同
+    mo_urls = [
+        f"{TIEBA}/mo/q/fid?kw={encoded}",
+        f"{TIEBA}/mo/q/fid?kw={encoded}&ie=utf-8",
+        f"{TIEBA}/f?kw={encoded}&lp=5028&mo_device=1&is_baidu=1",
+        f"https://wapp.baidu.com/f?kw={encoded}&lp=5028&mo_device=1",
+    ]
+    mo_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": f"{TIEBA}/",
+    }
+    for mo_url in mo_urls:
+        try:
+            r = session.get(mo_url, headers=mo_headers, cookies=_cookies(), timeout=15)
+            print(f"[publisher] get_fid mo status: {r.status_code}, url: {r.url}")
+            raw = r.text.strip()
+            # 移动端页面常见字段："forum_id":123 或 "fid":123 或 "id":123
+            for pat in (
+                r'"forum_id"\s*:\s*(\d+)',
+                r'"fid"\s*:\s*(\d+)',
+                r'"id"\s*:\s*(\d+)',
+            ):
+                mf = re.search(pat, raw)
+                if mf:
+                    fid = int(mf.group(1))
+                    print(f"[publisher] get_fid mo OK: {fid}")
+                    break
+            # 移动端页面里常见的规范吧名/标题
+            mt = re.search(r'"forum_name"\s*:\s*"([^"]+)"', raw) or re.search(
+                r'<title>([^<]+)</title>', raw, re.I
+            )
+            if mt:
+                name = _canonical_name_from_title(mt.group(1))
+                if name:
+                    canonical = name
+            if fid:
+                return fid, canonical
+        except Exception as e:  # noqa: BLE001
+            print(f"[publisher] get_fid mo {mo_url} failed: {type(e).__name__}: {e}")
     return fid, canonical
 
 
@@ -297,6 +319,12 @@ def _fid_via_like(session: requests.Session, encoded: str, referer: str):
 def get_fid(session: requests.Session, forum_name: str):
     encoded = requests.utils.quote(forum_name)
     referer = f"{TIEBA}/"
+
+    # 优先使用手动 fid 映射（高热度/反爬严重的吧可在 .env 里直接写死）
+    manual_fid = cfg.forum_fid_map.get(forum_name)
+    if manual_fid:
+        print(f"[publisher] get_fid 使用手动映射：{forum_name} -> {manual_fid}")
+        return int(manual_fid)
 
     canonical: str | None = None
 

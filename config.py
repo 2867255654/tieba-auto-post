@@ -1,6 +1,7 @@
 """配置加载：环境变量 + sources.yaml。
 所有敏感项（BDUSS）只从环境变量读取，不写进仓库。
 """
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,6 +43,13 @@ class Config:
     baiduid: str = os.getenv("BAIDUID", "")
     # BAIDUID_BFESS：新版百度设备 Cookie；若浏览器里没有 BAIDUID 而有这个，值可填到 BAIDUID 里
     baiduid_bfess: str = os.getenv("BAIDUID_BFESS", "")
+    # BAIDU_WISE_UID：百度移动端/wise 站点 Cookie，部分移动端接口需要
+    baidu_wise_uid: str = os.getenv("BAIDU_WISE_UID", "")
+
+    # 手动 fid 映射（JSON 格式），用于高热度/反爬严重的吧：{"epic吧":"123456",...}
+    forum_fid_map: dict = field(
+        default_factory=lambda: json.loads(os.getenv("FORUM_FID_MAP") or "{}")
+    )
 
     # 发帖开关：默认 False（草稿预览），绝不自动发帖
     post_mode: bool = os.getenv("POST_MODE", "0") in ("1", "true", "True", "yes")
