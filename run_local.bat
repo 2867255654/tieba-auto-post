@@ -44,11 +44,12 @@ echo ================================================ >> "%LOG%" 2>&1
 set "RC=%errorlevel%"
 
 echo ================================================ >> "%LOG%" 2>&1
-if %RC% equ 0 (
-    echo   Finished: success (exit code 0) >> "%LOG%" 2>&1
-) else (
-    echo   Finished: error (exit code %RC%) >> "%LOG%" 2>&1
+REM 用变量存结果消息，避免 echo 字符串里的 ")" 被 bat 解析成 if 块结束符而误执行 else 分支
+set "RESULT=Finished: success (exit code 0)"
+if not %RC% equ 0 (
+    set "RESULT=Finished: error (exit code %RC%)"
 )
+echo   %RESULT% >> "%LOG%" 2>&1
 echo ================================================ >> "%LOG%" 2>&1
 echo [END] RC=%RC% %date% %time% >> "%LOG%" 2>&1
 
