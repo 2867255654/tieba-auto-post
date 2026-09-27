@@ -13,7 +13,7 @@ venv/
 output/
 
 # 本地运行日志（含发帖内容，不进仓库）
-run_log.txt
+run_log*.txt
 
 # 本地 Windows 任务计划辅助脚本（硬编码本机路径，不通用）
 setup_task.bat
