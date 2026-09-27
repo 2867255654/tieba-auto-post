@@ -8,6 +8,7 @@
 """
 import concurrent.futures
 import difflib
+import html
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -38,8 +39,15 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _clean(html: str) -> str:
-    return re.sub(r"<[^>]+>", "", html or "").strip()
+def _clean(raw: str) -> str:
+    """清理 RSS 摘要：先剥离 HTML 标签，再解码 HTML 实体（&lt; &amp; &quot; 等），
+    最后压缩空白。否则 < 会被原样发出成 '乱码' 文本。"""
+    if not raw:
+        return ""
+    text = re.sub(r"<[^>]+>", "", raw or "")
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def _parse_date(entry: dict) -> datetime:
