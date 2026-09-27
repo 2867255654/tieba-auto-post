@@ -129,11 +129,18 @@ def _extract_fid(html: str) -> int | None:
 
 
 def _looks_like_real_name(name: str | None) -> bool:
-    """过滤掉雷达页/通用页返回的无意义标题（如“百度贴吧”）。"""
+    """过滤掉雷达页/通用页/小程序页返回的无意义标题。"""
     if not name:
         return False
-    bad = {"百度贴吧", "贴吧", "", "吧"}
-    return name not in bad
+    name = name.strip()
+    bad = {"", "吧", "贴吧", "百度贴吧", "贴吧小程序", "百度"}
+    if name in bad:
+        return False
+    # 登录错误页、小程序页 title 里常见这些词
+    if re.search(r'登录|小程序|错误|error|登陆|Auth', name, re.I):
+        return False
+    # 真实吧名通常以“吧”结尾
+    return name.endswith("吧")
 
 
 def _canonical_name_from_title(title: str | None) -> str | None:
@@ -162,17 +169,19 @@ def _fid_via_share_api(session: requests.Session, encoded: str, referer: str):
             )
             print(f"[publisher] share_api {path} status: {r.status_code}")
             raw = r.text.strip()
+            print(f"[publisher] share_api {path} raw[:200]: {raw[:200]!r}")
             # 处理 JSONP 包装：callback({...}) 或 ({...})
             if raw.startswith("(") and raw.endswith(")"):
                 raw = raw[1:-1]
             # 去掉常见 callback 前缀/后缀
             raw = re.sub(r'^[\w.]+\(', '', raw)
             raw = re.sub(r'\);?$', '', raw)
-            # 非贪婪匹配最内层 JSON 对象
-            m = re.search(r'\{.*?\}', raw, re.S)
-            if not m:
+            # 稳健提取最外层 JSON 对象：从第一个 { 到最后一个 }
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start == -1 or end == -1 or end <= start:
                 continue
-            data = json.loads(m.group(0))
+            data = json.loads(raw[start:end + 1])
             print(f"[publisher] share_api {path} response: {data}")
             d = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
             fid = d.get("fid") or d.get("forum_id") or data.get("fid") or data.get("forum_id")
