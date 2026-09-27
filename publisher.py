@@ -126,68 +126,64 @@ def _extract_fid(html: str) -> int | None:
     return None
 
 
-def get_fid(session: requests.Session, forum_name: str):
-    encoded = requests.utils.quote(forum_name)
-    base_url = f"{TIEBA}/f?kw={encoded}"
-    referer = f"{TIEBA}/"
+def _looks_like_real_name(name: str | None) -> bool:
+    """过滤掉雷达页/通用页返回的无意义标题（如“百度贴吧”）。"""
+    if not name:
+        return False
+    bad = {"百度贴吧", "贴吧", "", "吧"}
+    return name not in bad
 
-    # 方案 A：吧首页 HTML（多种参数与入口，防 CDN/风控返回通用页）
-    urls_to_try = [
-        f"{TIEBA}/f?kw={encoded}&fr=home",
-        f"{TIEBA}/f?kw={encoded}&ie=utf-8&fr=home",
-        f"{TIEBA}/f?kw={encoded}&ie=utf-8",
-        base_url,
-        f"{TIEBA}/f?kw={encoded}&ie=utf-8&pn=0",
-        f"{TIEBA}/f?kw={encoded}&fr=search",
-    ]
-    for url in urls_to_try:
-        r = session.get(
-            url,
-            headers=_headers({"Referer": referer}),
-            cookies=_cookies(),
-            timeout=15,
-        )
-        print(f"[publisher] get_fid try URL: {r.url}")
-        print(f"[publisher] get_fid status: {r.status_code}")
-        if r.history:
-            for i, h in enumerate(r.history, 1):
-                print(f"[publisher] get_fid redirect {i}: {h.status_code} -> {h.headers.get('Location', h.url)}")
-        fid = _extract_fid(r.text)
-        if fid:
-            print(f"[publisher] get_fid OK: {fid}")
-            return fid
 
-    # 调试：最后一次返回内容前 600 字符
-    snippet = r.text[:600].replace("\n", " ")
-    print(f"[publisher] get_fid HTML snippet: {snippet}")
+def _canonical_name_from_title(title: str | None) -> str | None:
+    """从 <title>Steam吧_百度贴吧</title> 提取规范吧名（去后缀）。"""
+    if not title:
+        return None
+    name = re.sub(r'[_-]?\s*百度贴吧.*$', '', title).strip()
+    return name if _looks_like_real_name(name) else None
 
-    # 方案 B：用贴吧分享接口查 fname -> fid
-    try:
-        api_url = f"{TIEBA}/f/commit/share/fname?fname={encoded}&ie=utf-8"
-        r2 = session.get(
-            api_url,
-            headers=_headers({"Referer": referer, "X-Requested-With": "XMLHttpRequest"}),
-            cookies=_cookies(),
-            timeout=15,
-        )
-        print(f"[publisher] get_fid API status: {r2.status_code}")
-        print(f"[publisher] get_fid API raw: {r2.text[:300]}")
-        raw = r2.text.strip()
-        if raw.startswith("(") and raw.endswith(")"):
-            raw = raw[1:-1]
-        m = re.search(r'\{.*\}', raw)
-        if m:
+
+def _fid_via_share_api(session: requests.Session, encoded: str, referer: str):
+    """分享 API 返回 JSON，最稳，通常不被“雷达接入”网页拦截；顺便拿规范吧名。
+
+    返回 (fid, canonical_name)。两条路径：fnameShareApi 与 fname。
+    """
+    fid = None
+    canonical = None
+    for path in ("/f/commit/share/fnameShareApi", "/f/commit/share/fname"):
+        try:
+            api_url = f"{TIEBA}{path}?ie=utf-8&fname={encoded}"
+            r = session.get(
+                api_url,
+                headers=_headers({"Referer": referer, "X-Requested-With": "XMLHttpRequest"}),
+                cookies=_cookies(),
+                timeout=15,
+            )
+            print(f"[publisher] share_api {path} status: {r.status_code}")
+            raw = r.text.strip()
+            if raw.startswith("(") and raw.endswith(")"):
+                raw = raw[1:-1]
+            m = re.search(r'\{.*\}', raw, re.S)
+            if not m:
+                continue
             data = json.loads(m.group(0))
-        else:
-            data = json.loads(raw)
-        print(f"[publisher] get_fid API response: {data}")
-        fid = data.get("data", {}).get("fid") or data.get("fid") or data.get("no") or data.get("forum_id")
-        if fid:
-            return int(fid)
-    except Exception as e:  # noqa: BLE001
-        print(f"[publisher] get_fid API failed: {type(e).__name__}: {e}")
+            print(f"[publisher] share_api {path} response: {data}")
+            d = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+            fid = d.get("fid") or d.get("forum_id") or data.get("fid") or data.get("forum_id")
+            candidate = d.get("forum_name") or d.get("name")
+            if _looks_like_real_name(candidate):
+                canonical = candidate
+            if fid:
+                print(f"[publisher] get_fid share_api OK: {fid}")
+                return int(fid), canonical
+        except Exception as e:  # noqa: BLE001
+            print(f"[publisher] share_api {path} failed: {type(e).__name__}: {e}")
+    return None, canonical
 
-    # 方案 C：移动端接口，通常对 Cookie 要求更松；必须用干净移动端头才返回真实吧页
+
+def _fid_via_mobile(session: requests.Session, encoded: str, referer: str):
+    """移动端接口，干净移动头返回 JSON 风格页面；顺带拿规范吧名。"""
+    fid = None
+    canonical = None
     try:
         mo_url = f"{TIEBA}/mo/q/fid?kw={encoded}"
         # 不要用 PC 的 _headers()，否则 Sec-Fetch-* / sec-ch-ua 与移动端 UA 冲突，会返回通用页
@@ -200,45 +196,141 @@ def get_fid(session: requests.Session, forum_name: str):
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             "Referer": f"{TIEBA}/",
         }
-        r3 = session.get(
-            mo_url,
-            headers=mo_headers,
-            cookies=_cookies(),
-            timeout=15,
+        r = session.get(mo_url, headers=mo_headers, cookies=_cookies(), timeout=15)
+        print(f"[publisher] get_fid mo status: {r.status_code}, url: {r.url}")
+        raw = r.text.strip()
+        mf = re.search(r'"forum_id"\s*:\s*(\d+)', raw) or re.search(r'"fid"\s*:\s*(\d+)', raw)
+        if mf:
+            fid = int(mf.group(1))
+            print(f"[publisher] get_fid mo OK: {fid}")
+        # 移动端页面里常见的规范吧名/标题
+        mt = re.search(r'"forum_name"\s*:\s*"([^"]+)"', raw) or re.search(
+            r'<title>([^<]+)</title>', raw, re.I
         )
-        print(f"[publisher] get_fid mo status: {r3.status_code}")
-        print(f"[publisher] get_fid mo url: {r3.url}")
-        print(f"[publisher] get_fid mo title: {re.search(r'<title>([^<]+)</title>', r3.text, re.I).group(1) if re.search(r'<title>([^<]+)</title>', r3.text, re.I) else 'N/A'}")
-        print(f"[publisher] get_fid mo raw: {r3.text[:500]}")
-        raw = r3.text.strip()
-        # 移动端页面常见字段："forum_id":707597 或 "fid":707597
-        m = re.search(r'"forum_id"\s*:\s*(\d+)', raw)
-        if m:
-            print(f"[publisher] get_fid mo OK: {m.group(1)}")
-            return int(m.group(1))
-        m = re.search(r'"fid"\s*:\s*(\d+)', raw)
-        if m:
-            print(f"[publisher] get_fid mo OK: {m.group(1)}")
-            return int(m.group(1))
+        if mt:
+            name = _canonical_name_from_title(mt.group(1))
+            if name:
+                canonical = name
     except Exception as e:  # noqa: BLE001
         print(f"[publisher] get_fid mo failed: {type(e).__name__}: {e}")
+    return fid, canonical
 
-    # 方案 D：关注/签到接口
+
+def _fid_via_rss(session: requests.Session, encoded: str, referer: str):
+    """RSS 订阅源绕开网页雷达页；部分吧能从频道信息拿到 fid / 规范名。"""
+    fid = None
+    canonical = None
+    try:
+        rss_url = f"{TIEBA}/f?kw={encoded}&rss=1&ie=utf-8"
+        r = session.get(rss_url, headers=_headers({"Referer": referer}), cookies=_cookies(), timeout=15)
+        print(f"[publisher] get_fid rss status: {r.status_code}")
+        text = r.text
+        mt = re.search(r'<title>(.*?)</title>', text, re.S)
+        if mt:
+            name = _canonical_name_from_title(mt.group(1))
+            if name:
+                canonical = name
+        # 某些 RSS 模板会内联 forum_id
+        mf = re.search(r'forum_id["\']?\s*[:=]\s*["\']?(\d+)', text)
+        if mf:
+            fid = int(mf.group(1))
+            print(f"[publisher] get_fid rss OK: {fid}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[publisher] get_fid rss failed: {type(e).__name__}: {e}")
+    return fid, canonical
+
+
+def _fid_via_home_html(session: requests.Session, encoded: str, referer: str):
+    """吧首页 HTML，最容易被雷达页拦截，放最后；顺带拿规范吧名。"""
+    fid = None
+    canonical = None
+    urls_to_try = [
+        f"{TIEBA}/f?kw={encoded}&fr=home",
+        f"{TIEBA}/f?kw={encoded}&ie=utf-8&fr=home",
+        f"{TIEBA}/f?kw={encoded}&ie=utf-8",
+        f"{TIEBA}/f?kw={encoded}",
+        f"{TIEBA}/f?kw={encoded}&ie=utf-8&pn=0",
+        f"{TIEBA}/f?kw={encoded}&fr=search",
+    ]
+    for url in urls_to_try:
+        r = session.get(url, headers=_headers({"Referer": referer}), cookies=_cookies(), timeout=15)
+        print(f"[publisher] get_fid home status: {r.status_code}, url: {r.url}")
+        if r.history:
+            for i, h in enumerate(r.history, 1):
+                print(f"[publisher] get_fid home redirect {i}: {h.status_code} -> {h.headers.get('Location', h.url)}")
+        raw = r.text
+        mt = re.search(r'<title>([^<]+)</title>', raw, re.I)
+        if mt:
+            name = _canonical_name_from_title(mt.group(1))
+            if name:
+                canonical = name
+        fid = _extract_fid(raw)
+        if fid:
+            print(f"[publisher] get_fid home OK: {fid}")
+            return fid, canonical
+    snippet = raw[:600].replace("\n", " ")
+    print(f"[publisher] get_fid home HTML snippet: {snippet}")
+    return None, canonical
+
+
+def _fid_via_like(session: requests.Session, encoded: str, referer: str):
+    """关注/签到接口兜底。"""
     try:
         like_url = f"{TIEBA}/f/like/furank?kw={encoded}&ie=utf-8"
-        r4 = session.get(
-            like_url,
-            headers=_headers({"Referer": referer}),
-            cookies=_cookies(),
-            timeout=15,
-        )
-        print(f"[publisher] get_fid like status: {r4.status_code}")
-        fid = _extract_fid(r4.text)
+        r = session.get(like_url, headers=_headers({"Referer": referer}), cookies=_cookies(), timeout=15)
+        print(f"[publisher] get_fid like status: {r.status_code}")
+        fid = _extract_fid(r.text)
         if fid:
             print(f"[publisher] get_fid like OK: {fid}")
-            return fid
+            return fid, None
     except Exception as e:  # noqa: BLE001
         print(f"[publisher] get_fid like failed: {type(e).__name__}: {e}")
+    return None, None
+
+
+def get_fid(session: requests.Session, forum_name: str):
+    encoded = requests.utils.quote(forum_name)
+    referer = f"{TIEBA}/"
+
+    canonical: str | None = None
+
+    # 方案 A：分享 API（JSON，最稳，通常不被雷达页拦截）
+    fid, c = _fid_via_share_api(session, encoded, referer)
+    if c:
+        canonical = c
+    if fid:
+        return fid
+
+    # 方案 B：移动端接口（JSON 风格，干净移动头）
+    fid, c = _fid_via_mobile(session, encoded, referer)
+    if c:
+        canonical = c
+    if fid:
+        return fid
+
+    # 方案 C：RSS 订阅源（绕开网页雷达页）
+    fid, c = _fid_via_rss(session, encoded, referer)
+    if c:
+        canonical = c
+    if fid:
+        return fid
+
+    # 方案 D：吧首页 HTML（最容易被雷达页拦截，放最后）
+    fid, c = _fid_via_home_html(session, encoded, referer)
+    if c:
+        canonical = c
+    if fid:
+        return fid
+
+    # 方案 E：关注/签到接口
+    fid, _ = _fid_via_like(session, encoded, referer)
+    if fid:
+        return fid
+
+    # 拿到规范吧名但没拿到 fid：多半是大小写/别名问题，用规范名重试一次
+    if canonical and canonical != forum_name:
+        print(f"[publisher] 用规范吧名重试：{forum_name} -> {canonical}")
+        return get_fid(session, canonical)
 
     return None
 
