@@ -172,7 +172,11 @@ def _fid_via_share_api(session: requests.Session, encoded: str, referer: str):
             candidate = d.get("forum_name") or d.get("name")
             if _looks_like_real_name(candidate):
                 canonical = candidate
-            if fid:
+            if fid == 0:
+                err = data.get("error") or d.get("error") or ""
+                print(f"[publisher] share_api {path} 返回 fid=0（error={err!r}），该吧名可能不存在或已被合并")
+                fid = None
+            elif fid:
                 print(f"[publisher] get_fid share_api OK: {fid}")
                 return int(fid), canonical
         except Exception as e:  # noqa: BLE001
@@ -227,7 +231,9 @@ def _fid_via_rss(session: requests.Session, encoded: str, referer: str):
         text = r.text
         mt = re.search(r'<title>(.*?)</title>', text, re.S)
         if mt:
-            name = _canonical_name_from_title(mt.group(1))
+            rss_title = mt.group(1).strip()
+            print(f"[publisher] get_fid rss title: {rss_title[:80]}")
+            name = _canonical_name_from_title(rss_title)
             if name:
                 canonical = name
         # 某些 RSS 模板会内联 forum_id
@@ -420,7 +426,11 @@ def publish(title: str, content: str, forum_name: str | None = None, dry_run: bo
         tbs = get_tbs(session)
         fid = get_fid(session, forum)
         if not fid:
-            raise RuntimeError("无法获取 fid，请检查论坛名或登录态（BDUSS）")
+            raise RuntimeError(
+                "无法获取 fid。可能原因：1）吧名不存在或已被合并；"
+                "2）该吧被百度“雷达接入”反爬页拦截；3）BDUSS 登录态失效。"
+                "请检查 run_log.txt 中 share_api/mobile/rss 等步骤的日志。"
+            )
         if not tbs:
             raise RuntimeError("无法获取 tbs（CSRF 令牌），请检查 BDUSS 是否有效")
         time.sleep(random.uniform(1, max(1.0, cfg.delay_seconds)))
