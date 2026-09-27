@@ -44,7 +44,9 @@ echo ================================================ >> "%LOG%" 2>&1
 set "RC=%errorlevel%"
 
 echo ================================================ >> "%LOG%" 2>&1
-REM 用变量存结果消息，避免 echo 字符串里的 ")" 被 bat 解析成 if 块结束符而误执行 else 分支
+REM Store the result in a variable so the literal ")" inside the message does
+REM not get parsed by cmd as the end of the if-block (which caused both
+REM branches to print before).
 set "RESULT=Finished: success (exit code 0)"
 if not %RC% equ 0 (
     set "RESULT=Finished: error (exit code %RC%)"
