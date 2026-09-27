@@ -15,7 +15,7 @@ if not defined TS set "TS=unknown"
 
 REM Latest log remains run_log.txt; older runs are archived as run_log_YYYYMMDD_HHMMSS.txt
 set "LOG=%~dp0run_log.txt"
-set "ARCHIVE=%~dp0run_log_%TS%.txt"
+set "ARCHIVE=%~dp0run_log_!TS!.txt"
 
 REM Redirect all following output to a log file for debugging
 echo [START] %date% %time% > "%LOG%" 2>&1
