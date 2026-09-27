@@ -1,14 +1,13 @@
 # 贴吧游戏资讯每日摘抄 —— 云端定时运行
-# 触发：每天定时（默认北京时间 08:00）+ 手动 workflow_dispatch
+# 触发：每天定时（北京时间 10:00 / UTC 02:00）+ 手动 workflow_dispatch
 # 安全：默认草稿模式（POST_MODE 未开），敏感项（BDUSS / LLM_API_KEY）走加密 Secrets，绝不进仓库。
+#       要真发帖，需在仓库 Settings → Secrets 设 POST_MODE=1 及 BDUSS 等登录态；并在 Variables 设 FORUM_NAMES。
 
 name: 贴吧游戏资讯每日摘抄
 
 on:
-  # 已关闭每日定时：GitHub 官方 runner 是海外 IP，被百度雷达反爬拦截，无法真发帖。
-  # 日常发帖走本地 Windows 任务计划程序（国内 IP）。保留手动触发用于测试/云端草稿备份。
-  # schedule:
-  #   - cron: '0 0 * * *'   # 北京 08:00（UTC 00:00）
+  schedule:
+    - cron: '0 2 * * *'   # 北京时间 10:00（UTC 02:00）
   workflow_dispatch: {}   # 允许在 Actions 页面手动点「Run workflow」
 
 permissions:
