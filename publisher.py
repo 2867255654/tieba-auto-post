@@ -251,6 +251,52 @@ def _fid_via_mobile(session: requests.Session, encoded: str, referer: str):
     return fid, canonical
 
 
+def _fid_via_wap(session: requests.Session, encoded: str, referer: str):
+    """WAP 旧版贴吧（waptieba.baidu.com）服务端渲染，HTML 源码里直接带 fid，
+    不像 PC 版用 JS 异步填充，能绕开“雷达接入”壳页。"""
+    fid = None
+    canonical = None
+    wap_urls = [
+        f"https://waptieba.baidu.com/f?kw={encoded}",
+        f"https://waptieba.baidu.com/f?kw={encoded}&fr=home",
+    ]
+    wap_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": "https://waptieba.baidu.com/",
+    }
+    for wap_url in wap_urls:
+        try:
+            r = session.get(wap_url, headers=wap_headers, cookies=_cookies(), timeout=15)
+            print(f"[publisher] get_fid wap status: {r.status_code}, url: {r.url}")
+            text = r.text
+            mt = re.search(r'<title>([^<]+)</title>', text, re.I)
+            if mt:
+                name = _canonical_name_from_title(mt.group(1))
+                if name:
+                    canonical = name
+            # WAP 页链接形如 /p/123?fid=67890 或 f?kw=xxx&fid=67890；也可能内联 forum_id
+            for pat in (
+                r'[?&]fid=(\d+)',
+                r'data-fid="(\d+)"',
+                r'"forum_id"\s*:\s*(\d+)',
+                r'"fid"\s*:\s*(\d+)',
+            ):
+                mf = re.search(pat, text)
+                if mf:
+                    fid = int(mf.group(1))
+                    print(f"[publisher] get_fid wap OK: {fid}")
+                    return fid, canonical
+            print(f"[publisher] get_fid wap HTML snippet: {text[:300].replace(chr(10), ' ')}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[publisher] get_fid wap {wap_url} failed: {type(e).__name__}: {e}")
+    return fid, canonical
+
+
 def _fid_via_rss(session: requests.Session, encoded: str, referer: str):
     """RSS 订阅源绕开网页雷达页；部分吧能从频道信息拿到 fid / 规范名。"""
     fid = None
@@ -339,6 +385,13 @@ def get_fid(session: requests.Session, forum_name: str):
 
     # 方案 A：分享 API（JSON，最稳，通常不被雷达页拦截）
     fid, c = _fid_via_share_api(session, encoded, referer)
+    if c:
+        canonical = c
+    if fid:
+        return fid
+
+    # 方案 A2：WAP 旧版（服务端渲染，源码直接带 fid，绕开 PC 雷达壳页）
+    fid, c = _fid_via_wap(session, encoded, referer)
     if c:
         canonical = c
     if fid:
