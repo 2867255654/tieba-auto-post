@@ -1,6 +1,7 @@
 # 贴吧游戏资讯每日摘抄 —— 云端定时运行
 # 触发：每天定时（北京时间 10:00 / UTC 02:00）+ 手动 workflow_dispatch
-# 安全：默认草稿模式（POST_MODE 未开），敏感项（BDUSS / LLM_API_KEY）走加密 Secrets，绝不进仓库。
+# 安全：默认草稿模式（POST_MODE 未开），敏感项（BDUSS 等登录态）走加密 Secrets，绝不进仓库。
+#       LLM（梗式润色）默认用 GitHub Models 免费推理：云端靠内置 GITHUB_TOKEN（需开启 permissions: models: read）零配置；
 #       要真发帖，需在仓库 Settings → Secrets 设 POST_MODE=1 及 BDUSS 等登录态；并在 Variables 设 FORUM_NAMES。
 
 name: 贴吧游戏资讯每日摘抄
@@ -12,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  models: read   # 启用 GitHub Models 免费推理（内置 GITHUB_TOKEN 即可调用，无需自建密钥）
 
 jobs:
   run:
@@ -39,11 +41,12 @@ jobs:
           MAX_AGE_HOURS: ${{ vars.MAX_AGE_HOURS || '24' }}
           RSSHUB_BASE: ${{ vars.RSSHUB_BASE || 'https://rsshub.app' }}   # 可逗号填多个，自建实例置首位
           DELAY_SECONDS: ${{ vars.DELAY_SECONDS || '3' }}
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL || 'https://api.openai.com/v1' }}
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'gpt-4o-mini' }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL || 'https://models.github.ai/inference' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'openai/gpt-4o-mini' }}   # GitHub Models 模型名须带厂商前缀
           # 敏感项（账号钥匙 / API 密钥）走加密 Secrets
           BDUSS: ${{ secrets.BDUSS }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          # LLM 密钥：默认用 GitHub 内置 GITHUB_TOKEN（免密钥、免费）；若你设了 LLM_API_KEY 则用你自己的（如 DeepSeek）
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY || secrets.GITHUB_TOKEN }}
           # 贴吧登录态补充 Cookie（本地验证发帖必需，缺一不可）
           STOKEN: ${{ secrets.STOKEN }}
           BDUSS_BFESS: ${{ secrets.BDUSS_BFESS }}
