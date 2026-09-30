@@ -82,7 +82,7 @@ def _fetch_rss(url: str, source_name: str, game_source: bool = False, timeout: i
     if data.bozo and not data.entries:
         print(f"[collector] RSS 可能不可用 {url}: {getattr(data, 'bozo_exception', '')}")
     for e in data.entries:
-        title = (e.get("title") or "").strip()
+        title = html.unescape((e.get("title") or "").strip())
         link = e.get("link", "")
         summary = _clean(e.get("summary", e.get("description", "")))
         published = _parse_date(e)

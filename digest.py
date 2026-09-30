@@ -36,12 +36,23 @@ def _has_chinese(s: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", s or ""))
 
 
+def _clean_text(s: str) -> str:
+    """彻底清洗文本：先剥 HTML 标签，再 HTML 实体多轮解码（防 &amp;quot; 双重编码），最后压缩空白。"""
+    if not s:
+        return ""
+    prev, cur = None, s
+    for _ in range(3):  # 最多 3 轮：覆盖 &amp;lt;br&amp;gt; -> <br> -> 剥掉 这种嵌套
+        prev = cur
+        cur = re.sub(r"<[^>]+>", "", cur)
+        cur = html.unescape(cur)
+        if cur == prev:
+            break
+    return re.sub(r"\s+", " ", cur).strip()
+
+
 def _clean_summary(text: str, limit: int = 150) -> str:
     """清洗并安全截断摘要：解码 HTML 实体、压缩空白，按句子/词边界断，不半句截断。"""
-    if not text:
-        return ""
-    text = html.unescape(text)
-    text = re.sub(r"\s+", " ", text).strip()
+    text = _clean_text(text)
     if len(text) <= limit:
         return text
     cut = text[:limit]
@@ -59,11 +70,14 @@ def _clean_summary(text: str, limit: int = 150) -> str:
 def _build_user_content(items: list) -> str:
     lines = []
     for i, it in enumerate(items, 1):
+        # 所有字段统一清洗，避免 title/link 里的 HTML 实体直接进帖子
+        title = _clean_text(it.get("title") or "")
         summary = _clean_summary(it.get("summary") or "", limit=200)
+        link = _clean_text(it.get("link") or "")
         lines.append(
-            f"{i}. 标题：{it['title']}\n"
+            f"{i}. 标题：{title}\n"
             f"   摘要：{summary}\n"
-            f"   来源：{it['source']} | 链接：{it['link']}"
+            f"   来源：{it.get('source', '')} | 链接：{link}"
         )
     return "\n".join(lines)
 
@@ -94,10 +108,26 @@ def _llm_digest(items: list, forum: str, n: int):
         "Authorization": f"Bearer {cfg.llm_api_key}",
         "Content-Type": "application/json",
     }
-    resp = requests.post(url, json=payload, headers=headers, timeout=60)
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
-    return _split_title_body(content)
+    resp = None
+    try:
+        print(f"[digest] LLM 请求：{url}  model={cfg.llm_model}")
+        resp = requests.post(url, json=payload, headers=headers, timeout=60)
+        if resp.status_code != 200:
+            print(f"[digest] LLM 响应异常 status={resp.status_code} body={resp.text[:400]!r}")
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        return _split_title_body(content)
+    except Exception as e:  # noqa: BLE001
+        # 把响应状态码/正文带出来，便于区分：401/403=权限、404=模型名或端点、429=限流
+        status = getattr(resp, "status_code", "?") if resp is not None else "?"
+        body = ""
+        if resp is not None:
+            try:
+                body = f" body={resp.text[:400]!r}"
+            except Exception:
+                pass
+        print(f"[digest] LLM 调用失败（status={status}{body}）：{type(e).__name__}: {e}")
+        raise
 
 
 def _fallback_digest(items: list, forum: str, n: int):
@@ -137,12 +167,13 @@ def _fallback_digest(items: list, forum: str, n: int):
 
     lines = [random.choice(openers), ""]
     for i, it in enumerate(chosen, 1):
+        title = _clean_text(it.get("title") or "")
         summary = _clean_summary(it.get("summary") or "")
         lead = random.choice(leads)
-        lines.append(f"{i}. {lead}，{it['title']}")
+        lines.append(f"{i}. {lead}，{title}")
         if summary:
             lines.append(f"   {summary}")
-        lines.append(f"   来源：{it['source']} | {it['link']}")
+        lines.append(f"   来源：{it['source']} | {_clean_text(it.get('link') or '')}")
         lines.append("")
     lines.append(random.choice(closers))
     return random.choice(title_pool), "\n".join(lines)
