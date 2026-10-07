@@ -372,6 +372,11 @@ def _fid_via_like(session: requests.Session, encoded: str, referer: str):
 
 
 def get_fid(session: requests.Session, forum_name: str):
+    """返回 (fid, canonical_name)。
+
+    canonical 是百度认可的**规范吧名**（拿不到时为 None）。发帖时应优先用它作为 kw，
+    否则当用户输入的写法与百度规范名不一致时，会被拒发（错误码 2000 无效参数 fname）。
+    """
     encoded = requests.utils.quote(forum_name)
     referer = f"{TIEBA}/"
 
@@ -379,7 +384,7 @@ def get_fid(session: requests.Session, forum_name: str):
     manual_fid = cfg.forum_fid_map.get(forum_name)
     if manual_fid:
         print(f"[publisher] get_fid 使用手动映射：{forum_name} -> {manual_fid}")
-        return int(manual_fid)
+        return int(manual_fid), None
 
     canonical: str | None = None
 
@@ -388,47 +393,47 @@ def get_fid(session: requests.Session, forum_name: str):
     if c:
         canonical = c
     if fid:
-        return fid
+        return fid, canonical
 
     # 方案 A2：WAP 旧版（服务端渲染，源码直接带 fid，绕开 PC 雷达壳页）
     fid, c = _fid_via_wap(session, encoded, referer)
     if c:
         canonical = c
     if fid:
-        return fid
+        return fid, canonical
 
     # 方案 B：移动端接口（JSON 风格，干净移动头）
     fid, c = _fid_via_mobile(session, encoded, referer)
     if c:
         canonical = c
     if fid:
-        return fid
+        return fid, canonical
 
     # 方案 C：RSS 订阅源（绕开网页雷达页）
     fid, c = _fid_via_rss(session, encoded, referer)
     if c:
         canonical = c
     if fid:
-        return fid
+        return fid, canonical
 
     # 方案 D：吧首页 HTML（最容易被雷达页拦截，放最后）
     fid, c = _fid_via_home_html(session, encoded, referer)
     if c:
         canonical = c
     if fid:
-        return fid
+        return fid, canonical
 
     # 方案 E：关注/签到接口
     fid, _ = _fid_via_like(session, encoded, referer)
     if fid:
-        return fid
+        return fid, canonical
 
     # 拿到规范吧名但没拿到 fid：多半是大小写/别名问题，用规范名重试一次
     if canonical and canonical != forum_name:
         print(f"[publisher] 用规范吧名重试：{forum_name} -> {canonical}")
         return get_fid(session, canonical)
 
-    return None
+    return None, None
 
 
 def post_thread(
@@ -555,7 +560,11 @@ def publish(title: str, content: str, forum_name: str | None = None, dry_run: bo
         # 先预热 Session（访问首页建立会话），否则风控会返回"雷达接入"通用页
         session = _create_session()
         tbs = get_tbs(session)
-        fid = get_fid(session, forum)
+        fid, canonical = get_fid(session, forum)
+        # 优先用百度认可的规范吧名发帖，避免输入写法与规范名不一致时被拒（错误码 2000）
+        if canonical and canonical != forum:
+            print(f"[publisher] 采用百度规范吧名发帖：{forum!r} -> {canonical!r}")
+            forum = canonical
         if not fid:
             raise RuntimeError(
                 "无法获取 fid。可能原因：1）吧名不存在或已被合并；"
