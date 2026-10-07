@@ -492,6 +492,47 @@ def post_thread(
         return {"raw": r.text[:500]}
 
 
+# 百度贴吧发帖常见错误码（把原始响应翻译成人话，便于排查）
+_TIEBA_POST_ERR = {
+    2000: (
+        "无效的吧名参数(fname) —— 吧名很可能写错了。贴吧吧名不带“吧”字："
+        "应填 Steam / Epic，而不是 Steam吧 / epic吧"
+    ),
+    2101: "本吧仅登录用户可发帖，或登录态已失效",
+    4010: "账号存在异常，需绑定手机后再操作",
+    220034: "操作太频繁，被限流，稍后再试",
+    260005: "登录状态已过期，请重新获取 BDUSS",
+    340012: "账号还未关注本吧（部分吧要求先关注才能发帖）",
+    210009: "未知错误：标题可能含特殊符号",
+}
+
+
+def _judge_post_response(res) -> tuple:
+    """把百度发帖响应翻译成 (是否成功, 人话说明)。
+    成功形如 {'no':0,'err_code':0,'data':{'tid':'...'}}；
+    失败形如 {'no':2000,'error':232000,'data':{'tid':'0','fname':'...'}}。"""
+    if not isinstance(res, dict):
+        return False, f"响应格式异常：{str(res)[:200]}"
+    data = res.get("data") or {}
+    no = res.get("no", res.get("err_code"))
+    tid = str(data.get("tid") or "")
+    fname = data.get("fname") or ""
+    if str(no) == "0" and tid and tid != "0":
+        return True, f"tid={tid}  吧={fname}"
+    try:
+        hint = _TIEBA_POST_ERR.get(int(no), "")
+    except (TypeError, ValueError):
+        hint = ""
+    detail = f"no={no}"
+    if res.get("error") not in (None, "", 0):
+        detail += f" error={res.get('error')}"
+    if fname:
+        detail += f" fname={fname!r}"
+    if hint:
+        detail += f"\n    ↳ 可能原因：{hint}"
+    return False, detail
+
+
 def publish(title: str, content: str, forum_name: str | None = None, dry_run: bool | None = None):
     forum = forum_name or cfg.forum_names[0]
     should_post = (cfg.post_mode if dry_run is None else (not dry_run)) and bool(cfg.bduss)
@@ -526,6 +567,8 @@ def publish(title: str, content: str, forum_name: str | None = None, dry_run: bo
         time.sleep(random.uniform(1, max(1.0, cfg.delay_seconds)))
         res = post_thread(session, fid, forum, title, content, tbs)
         print(f"[publisher] 发帖响应：{res}")
+        ok, why = _judge_post_response(res)
+        print(f"[publisher] {'✅ 发帖成功：' if ok else '❌ 发帖失败：'}{why}")
         # 把响应也存到本地日志
         (OUTPUT_DIR / f"post_response_{time.strftime('%Y%m%d_%H%M%S')}.txt").write_text(
             str(res), encoding="utf-8"
