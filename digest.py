@@ -183,12 +183,14 @@ def _fallback_digest(items: list, forum: str, n: int):
 
     opener = random.choice(openers)
     lines = [opener, ""]
-    # 条目前缀避开开场白里已用过的词，避免同一帖里"家人们谁懂啊"重复出现
+    # 条目前缀：避开开场白已用词，且同帖内不重复（洗牌后按序取用）
     lead_pool = [l for l in leads if l not in opener] or leads
+    lead_queue = lead_pool[:]
+    random.shuffle(lead_queue)
     for i, it in enumerate(chosen, 1):
         title = _clean_text(it.get("title") or "")
         summary = _clean_summary(it.get("summary") or "")
-        lead = random.choice(lead_pool)
+        lead = lead_queue[(i - 1) % len(lead_queue)]
         lines.append(f"{i}. {lead}，{title}")
         if summary:
             lines.append(f"   {summary}")
@@ -203,7 +205,11 @@ def generate_digest(items: list, forum_name: str | None = None, top_n: int | Non
     n = top_n or cfg.top_n
     if cfg.llm_api_key:
         try:
-            return _llm_digest(items, forum, n)
+            title, body = _llm_digest(items, forum, n)
+            print(f"[digest] ✅ 标题与正文均由 LLM 生成（model={cfg.llm_model}）")
+            return title, body
         except Exception as e:  # noqa: BLE001
             print(f"[digest] LLM 调用失败，回退兜底摘要：{e}")
+    else:
+        print("[digest] 未配置 LLM_API_KEY：标题与正文均为内置兜底模板（未经 AI 润色）")
     return _fallback_digest(items, forum, n)

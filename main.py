@@ -57,6 +57,9 @@ def main():
 
     title, body = generate_digest(items)
     print(f"\n[digest] 生成标题：{title}\n")
+    # 把正文也打出来：便于确认正文到底来自 LLM 还是兜底模板
+    print(f"[digest] 生成正文（{len(body)} 字）：\n{body}\n")
+    print("[digest] ---- 以上为将发往贴吧的完整内容 ----\n")
 
     if demo:
         dry_run = True  # demo 模式强制草稿，绝不真发
