@@ -44,8 +44,8 @@ jobs:
           DELAY_SECONDS: ${{ vars.DELAY_SECONDS || '3' }}
           # LLM：默认接 智谱 GLM-4-Flash（免费模型）；可用 Variables 覆盖成别家（DeepSeek / Groq 等）
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4' }}
-          # glm-4-air 质量远好于免费版 glm-4-flash（0.5 元/百万 token，每天约 0.001 元）
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'glm-4-air' }}
+          # 默认免费版 glm-4-flash；想要更好的文案质量可在 Variables 覆盖为 glm-4-air（约 0.5 元/百万 token）
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'glm-4-flash' }}
           # 敏感项（账号钥匙 / API 密钥）走加密 Secrets
           BDUSS: ${{ secrets.BDUSS }}
           # LLM 密钥：填智谱 API Key；留空则自动回退到内置兜底摘要
