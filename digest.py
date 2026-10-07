@@ -13,23 +13,20 @@ import requests
 
 from config import cfg
 
-SYSTEM_PROMPT = """你是一位混迹抗压吧多年的老哥，最擅长用贴吧梗式口吻吐槽、盘游戏圈那点事。请为「{forum}」吧写一篇"每日游戏资讯摘抄"主题帖（最多 {n} 条）。
+SYSTEM_PROMPT = """你是一位混迹抗压吧多年的老哥，负责把今天的游戏资讯整理成一篇贴吧帖。请为「{forum}」吧写一篇"每日游戏资讯摘抄"（最多 {n} 条）。
 
-文风要求（抗压吧梗式）：
-1. 整体语气：调侃、玩梗、带点阴阳怪气，但绝不造谣、不人身攻击、不低俗；把厂商/工作室当"乐子"盘，而不是干巴巴播新闻。
-2. 标题要像贴吧爆款，可用抗压吧常用梗（典中典/寄了/回旋镖/急了/蚌埠住了/破防等），抓眼球但别纯标题党。可任选一类公式：
-   - 悬念式："XX 这波操作，究竟谁破防了？"
-   - 盘点式："今日游戏圈 N 大瓜，最后一个绷不住"
-   - 梗句式："典中典，XX 又整新活了"
-3. 开场白用老哥口吻（例："老哥们坐好，今天游戏圈又整了一堆活，义务给大家盘一盘："），正文穿插"这波啊""家人们谁懂啊""咱就是说""建议直接入土"等口语梗，别全程一个调。
-4. 每条资讯先用一句梗式点评引出要点（可以阴阳怪气，但事实依据必须来自素材，不能瞎编），再给出来源媒体名 + 原文链接（链接务必原样保留，别漏）。
-5. 英文素材必须翻成通顺中文的梗式表达，不要大段保留英文原文。
-6. 只根据给定素材整理，不编造；结尾先用一句"今日锐评"收个尾（例："今日最佳乐子已送达，剩下的交给评论区。"），再来一句收尾梗（例："瓜吃完了，理性讨论别急眼，友善开黑不互喷 🎮"）。
-7. 输出严格使用如下格式（不要有多余解释）：
+核心要求（重要程度从高到低）：
+1. 【把事说清楚】每条先用一句通顺自然的中文讲明白"发生了什么"，这是第一位的。素材若是英文，翻成地道中文，不要逐字硬译——例如 fart trails 应译成"排气尾迹/特效"这类游戏圈说法，绝不能写成"放屁轨迹"；游戏名、主机名用通用译名。
+2. 【玩梗要节制】梗只用在标题、开场白和结尾。正文条目以讲事实为主，每条最多带一个口语词；严禁每条都写"这波操作""家人们谁懂啊""咱就是说"，全篇不许重复同一个句式。
+3. 【不要编造】只根据给定素材整理；可以调侃厂商/工作室，但不造谣、不人身攻击、不低俗。
+4. 【不要输出网址】正文里禁止出现任何网址（http/https）。每条末尾只标来源媒体名，格式固定为：（来源：媒体名）
+5. 【标题】要有贴吧爆款感，可用"典中典/寄了/回旋镖/破防/蚌埠住了"等梗，但别纯标题党。参考：悬念式"XX 这波，究竟谁破防了？"、盘点式"今日游戏圈 N 大瓜，最后一个绷不住"。
+6. 【开头结尾】开场一句老哥口吻（例："老哥们坐好，今天游戏圈又整了一堆活，义务给大家盘一盘："）；结尾先来一句"今日锐评"，再来一句收尾梗。
+7. 严格按下面格式输出，不要任何多余解释：
 【标题】
 <标题文字>
 【正文】
-<正文内容，使用换行分隔条目>"""
+<正文，每条一行，格式：N. 事实描述（来源：媒体名）>"""
 
 
 def _has_chinese(s: str) -> bool:
@@ -67,17 +64,28 @@ def _clean_summary(text: str, limit: int = 150) -> str:
     return cut.strip() + "…"
 
 
+def _strip_links(text: str) -> str:
+    """去掉正文里的网址（贴吧版面塞长链接很乱）：先清「链接：URL」整块，再兜底清残留 URL。"""
+    if not text:
+        return ""
+    text = re.sub(r"(?:[|｜]\s*)?(?:链接|原文链接|原文|来源链接)\s*[:：]?\s*<?https?://\S+>?", "", text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[（(]\s*[）)]", "", text)      # 删链接后可能留下空括号
+    text = re.sub(r"[ \t]+", " ", text)
+    text = "\n".join(line.strip() for line in text.splitlines())
+    return text
+
+
 def _build_user_content(items: list) -> str:
+    """给 LLM 的素材：只给标题/摘要/来源名，不提供链接（从源头避免模型把长 URL 写进正文）。"""
     lines = []
     for i, it in enumerate(items, 1):
-        # 所有字段统一清洗，避免 title/link 里的 HTML 实体直接进帖子
         title = _clean_text(it.get("title") or "")
         summary = _clean_summary(it.get("summary") or "", limit=200)
-        link = _clean_text(it.get("link") or "")
         lines.append(
             f"{i}. 标题：{title}\n"
             f"   摘要：{summary}\n"
-            f"   来源：{it.get('source', '')} | 链接：{link}"
+            f"   来源：{it.get('source', '')}"
         )
     return "\n".join(lines)
 
@@ -116,7 +124,8 @@ def _llm_digest(items: list, forum: str, n: int):
             print(f"[digest] LLM 响应异常 status={resp.status_code} body={resp.text[:400]!r}")
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"]
-        return _split_title_body(content)
+        title, body = _split_title_body(content)
+        return title, _strip_links(body)
     except Exception as e:  # noqa: BLE001
         # 把响应状态码/正文带出来，便于区分：401/403=权限、404=模型名或端点、429=限流
         status = getattr(resp, "status_code", "?") if resp is not None else "?"
@@ -160,20 +169,23 @@ def _fallback_digest(items: list, forum: str, n: int):
         "重点来了", "吃瓜预警", "速览",
     ]
     closers = [
-        "—— 瓜吃完了，理性讨论别急眼，友善开黑不互喷 🎮（来源点开可看原文）",
-        "—— 今日瓜暂且这些，觉得乐的扣个 1，理性开麦不互喷 🎮（来源点开看原文）",
-        "—— 盘完了，有想法的评论区开麦，友善交流不引战 🎮（来源在每条底下）",
+        "—— 瓜吃完了，理性讨论别急眼，友善开黑不互喷 🎮",
+        "—— 今日瓜暂且这些，觉得乐的扣个 1，理性开麦不互喷 🎮",
+        "—— 盘完了，有想法的评论区开麦，友善交流不引战 🎮",
     ]
 
-    lines = [random.choice(openers), ""]
+    opener = random.choice(openers)
+    lines = [opener, ""]
+    # 条目前缀避开开场白里已用过的词，避免同一帖里"家人们谁懂啊"重复出现
+    lead_pool = [l for l in leads if l not in opener] or leads
     for i, it in enumerate(chosen, 1):
         title = _clean_text(it.get("title") or "")
         summary = _clean_summary(it.get("summary") or "")
-        lead = random.choice(leads)
+        lead = random.choice(lead_pool)
         lines.append(f"{i}. {lead}，{title}")
         if summary:
             lines.append(f"   {summary}")
-        lines.append(f"   来源：{it['source']} | {_clean_text(it.get('link') or '')}")
+        lines.append(f"   （来源：{it['source']}）")
         lines.append("")
     lines.append(random.choice(closers))
     return random.choice(title_pool), "\n".join(lines)
