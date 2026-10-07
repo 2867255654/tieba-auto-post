@@ -69,9 +69,14 @@ def main():
         dry_run = None  # 由 publisher 根据 cfg 自行判断
     will_post = mode == "发帖"
     results = {}
+    # 配图：取采集到的前 2 条「带图资讯」的源站配图（正文里第一张会当帖子封面）
+    image_urls = [it.get("image") for it in items if it.get("image")][:2]
+    if image_urls:
+        print(f"[main] 准备 {len(image_urls)} 张配图（会在发帖时转存到贴吧图床）")
+
     for idx, forum in enumerate(target_forums):
         print(f"\n=== 发往：{forum} ===")
-        res = publish(title, body, forum_name=forum, dry_run=dry_run)
+        res = publish(title, body, forum_name=forum, dry_run=dry_run, image_urls=image_urls)
         results[forum] = res
         # 仅「全发模式」才需要多吧间隔；随机单吧无需间隔
         if will_post and pick_all and idx < len(target_forums) - 1:

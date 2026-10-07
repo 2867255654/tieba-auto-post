@@ -50,6 +50,26 @@ def _clean(raw: str) -> str:
     return text
 
 
+def _extract_image(raw_html: str, entry: dict) -> str:
+    """从 RSS 摘要 HTML / 附件里取第一张配图 URL。
+
+    注意：_clean() 会把 <img> 标签整段剥掉，所以必须在清洗前先取出来，
+    否则配图信息在采集阶段就丢了（发帖配图需要）。
+    """
+    if raw_html:
+        m = re.search(r'<img[^>]+src=["\']([^"\']+)', raw_html)
+        if m:
+            return html.unescape(m.group(1))
+    for x in (entry.get("enclosures") or []):
+        href = x.get("href") or ""
+        if href and re.search(r"\.(jpe?g|png|webp|gif)(\?|$)", href, re.I):
+            return href
+    for m in (entry.get("media_content") or []):
+        if m.get("url"):
+            return m["url"]
+    return ""
+
+
 def _parse_date(entry: dict) -> datetime:
     for key in ("published_parsed", "updated_parsed"):
         val = entry.get(key)
@@ -84,7 +104,9 @@ def _fetch_rss(url: str, source_name: str, game_source: bool = False, timeout: i
     for e in data.entries:
         title = html.unescape((e.get("title") or "").strip())
         link = e.get("link", "")
-        summary = _clean(e.get("summary", e.get("description", "")))
+        raw_summary = e.get("summary", e.get("description", ""))
+        image = _extract_image(raw_summary, e)
+        summary = _clean(raw_summary)
         published = _parse_date(e)
         if not title or not link:
             continue
@@ -93,6 +115,7 @@ def _fetch_rss(url: str, source_name: str, game_source: bool = False, timeout: i
                 "title": title,
                 "link": link,
                 "summary": summary,
+                "image": image,
                 "published": published,
                 "source": source_name,
                 "game_source": game_source,

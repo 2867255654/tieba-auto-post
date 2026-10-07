@@ -60,16 +60,22 @@ def _cookies() -> dict:
     return cookies
 
 
-def _format_content(content: str) -> str:
-    """把普通正文转成贴吧富文本格式 [[0,1,"段落"], ...]。
+def _format_content(content: str, images: list | None = None) -> str:
+    """把普通正文转成贴吧富文本格式 [[0,1,"段落"], ...]，可选插入配图。
 
     贴吧发帖接口要求 content 字段是这种 JSON 数组字符串；直接传纯文本会被服务器拒绝。
+    images 为 [{'pic_id','width','height'}]；第一张放最前（当帖子封面/列表缩略图），其余放末尾。
     """
     paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
     if not paragraphs:
         paragraphs = [content]
     # 实测：只给数组分段，贴吧渲染时不会换行；必须在每段文本末尾补 \n 才会真正换行。
     arr = [[0, 1, p + "\n"] for p in paragraphs]
+    if images:
+        pic_paras = [
+            [0, 1, f"#(pic,{im['pic_id']},{im['width']},{im['height']})\n"] for im in images
+        ]
+        arr = pic_paras[:1] + arr + pic_paras[1:]
     return json.dumps(arr, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -437,6 +443,69 @@ def get_fid(session: requests.Session, forum_name: str):
     return None, None
 
 
+def download_image(url: str, timeout: int = 20) -> bytes | None:
+    """下载源站配图，准备交给贴吧图床。"""
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=timeout)
+        if r.status_code == 200 and r.content:
+            return r.content
+        print(f"[publisher] download_image status={r.status_code} url={url[:100]}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[publisher] download_image 失败：{type(e).__name__}: {e}")
+    return None
+
+
+def upload_image(
+    session: requests.Session,
+    fid: int,
+    image_bytes: bytes,
+    filename: str = "pic.jpg",
+    tbs: str | None = None,
+) -> dict | None:
+    """把图片上传到贴吧图床，返回 {'pic_id','width','height'}；失败返回 None。
+
+    接口（网页端发帖时上传图片走的那个）：
+        POST https://uploadphotos.baidu.com/upload/pic?tbs=..&fid=..&save_yun_album=1
+        返回 {"err_no":0,"info":{"pic_id_encode":"..","fullpic_width":626,"fullpic_height":292}}
+    拿到 pic_id 后，正文里用 #(pic,<pic_id>,<宽>,<高>) 插入图片。
+    """
+    if tbs is None:
+        tbs = get_tbs(session)
+    url = (
+        "https://uploadphotos.baidu.com/upload/pic"
+        f"?tbs={requests.utils.quote(str(tbs))}&fid={fid}&save_yun_album=1"
+    )
+    headers = _headers({"Referer": f"{TIEBA}/f?kw={fid}", "Origin": "https://tieba.baidu.com"})
+    try:
+        r = session.post(
+            url,
+            files={"file": (filename, image_bytes, "image/jpeg")},
+            headers=headers,
+            cookies=_cookies(),
+            timeout=45,
+        )
+        print(f"[publisher] upload_image status: {r.status_code}")
+        data = r.json()
+    except Exception as e:  # noqa: BLE001
+        print(f"[publisher] upload_image 失败：{type(e).__name__}: {e}")
+        return None
+    if data.get("err_no") != 0:
+        print(f"[publisher] upload_image 被拒：err_no={data.get('err_no')} err_msg={data.get('err_msg')!r}")
+        return None
+    info = data.get("info") or {}
+    pic_id = info.get("pic_id_encode") or info.get("pic_id")
+    if not pic_id:
+        print(f"[publisher] upload_image 无 pic_id：{str(data)[:300]}")
+        return None
+    result = {
+        "pic_id": pic_id,
+        "width": info.get("fullpic_width") or info.get("width") or 0,
+        "height": info.get("fullpic_height") or info.get("height") or 0,
+    }
+    print(f"[publisher] upload_image OK: {result}")
+    return result
+
+
 def post_thread(
     session: requests.Session,
     fid: int,
@@ -444,6 +513,7 @@ def post_thread(
     title: str,
     content: str,
     tbs: str,
+    images: list | None = None,
 ) -> dict:
     data = {
         "ie": "utf-8",
@@ -453,7 +523,7 @@ def post_thread(
         "src": "1",
         "rich_text": "1",   # 声明 content 为富文本（换行/图片标记才生效）
         "title": title,
-        "content": _format_content(content),
+        "content": _format_content(content, images),
         "tbs": tbs,
         "vericode": "",  # 正常无验证码时留空；触发验证码需人工处理
         "vote_info": "",
@@ -540,7 +610,13 @@ def _judge_post_response(res) -> tuple:
     return False, detail
 
 
-def publish(title: str, content: str, forum_name: str | None = None, dry_run: bool | None = None):
+def publish(
+    title: str,
+    content: str,
+    forum_name: str | None = None,
+    dry_run: bool | None = None,
+    image_urls: list | None = None,
+):
     forum = forum_name or cfg.forum_names[0]
     should_post = (cfg.post_mode if dry_run is None else (not dry_run)) and bool(cfg.bduss)
 
@@ -575,8 +651,21 @@ def publish(title: str, content: str, forum_name: str | None = None, dry_run: bo
             )
         if not tbs:
             raise RuntimeError("无法获取 tbs（CSRF 令牌），请检查 BDUSS 是否有效")
+        # 配图：取前 2 张源站图片，下载后转存到贴吧图床，拿 pic_id 插入正文
+        images = []
+        for u in (image_urls or [])[:2]:
+            if not u:
+                continue
+            raw = download_image(u)
+            if not raw:
+                continue
+            up = upload_image(session, fid, raw, tbs=tbs)
+            if up:
+                images.append(up)
+        if images:
+            print(f"[publisher] 已上传 {len(images)} 张配图")
         time.sleep(random.uniform(1, max(1.0, cfg.delay_seconds)))
-        res = post_thread(session, fid, forum, title, content, tbs)
+        res = post_thread(session, fid, forum, title, content, tbs, images=images)
         print(f"[publisher] 发帖响应：{res}")
         ok, why = _judge_post_response(res)
         print(f"[publisher] {'✅ 发帖成功：' if ok else '❌ 发帖失败：'}{why}")
