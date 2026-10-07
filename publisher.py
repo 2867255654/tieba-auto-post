@@ -68,7 +68,8 @@ def _format_content(content: str) -> str:
     paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
     if not paragraphs:
         paragraphs = [content]
-    arr = [[0, 1, p] for p in paragraphs]
+    # 实测：只给数组分段，贴吧渲染时不会换行；必须在每段文本末尾补 \n 才会真正换行。
+    arr = [[0, 1, p + "\n"] for p in paragraphs]
     return json.dumps(arr, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -450,6 +451,7 @@ def post_thread(
         "kw": forum_name,
         "is_video": "false",
         "src": "1",
+        "rich_text": "1",   # 声明 content 为富文本（换行/图片标记才生效）
         "title": title,
         "content": _format_content(content),
         "tbs": tbs,
