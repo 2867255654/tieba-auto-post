@@ -125,6 +125,9 @@ def _score(it: dict) -> float:
     if it.get("game_source"):
         s += 6.0
     text = it["title"] + it["summary"]
+    # 中文优先：中文源条目排在英文源前面（英文源仍会经 LLM 翻译成中文，但中文原生更贴吧友）
+    if re.search(r"[\u4e00-\u9fff]", text):
+        s += 8.0
     for kw in GAME_KEYWORDS:
         if kw.lower() in text.lower():
             s += 3.0
@@ -187,8 +190,8 @@ def collect() -> list:
     for it in deduped:
         it["score"] = _score(it)
     deduped.sort(key=lambda x: x["score"], reverse=True)
-    # 跨源均衡：单源最多取 max(2, top_n//2) 条，避免一个大源霸屏
-    max_per = max(2, cfg.top_n // 2)
+    # 跨源均衡：单源最多取 max(2, top_n//3) 条，避免一个源霸屏、让更多家媒体上榜
+    max_per = max(2, cfg.top_n // 3)
     per_count: dict = {}
     balanced = []
     for it in deduped:

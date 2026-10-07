@@ -11,10 +11,18 @@
 # 公开实例常超时，强烈建议自建 RSSHub 并把地址放 RSSHUB_BASE 首位。
 
 sources:
-  # —— 国内（中文，直连 RSS）——
+  # —— 国内（中文，直连 RSS；不依赖 RSSHub，最稳定）——
   - name: 机核 gcores
     type: rss
     url: https://www.gcores.com/rss
+    game_source: true
+  - name: 游研社
+    type: rss
+    url: https://www.yystv.cn/rss/feed
+    game_source: true
+  - name: 触乐
+    type: rss
+    url: https://www.chuapp.com/feed
     game_source: true
 
   # —— 海外游戏媒体（英文；GitHub 海外 runner 稳定可达）——
