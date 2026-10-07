@@ -70,7 +70,12 @@ def main():
     will_post = mode == "发帖"
     results = {}
     # 配图：取采集到的前 2 条「带图资讯」的源站配图（正文里第一张会当帖子封面）
-    image_urls = [it.get("image") for it in items if it.get("image")][:2]
+    # 排查用开关：设 ENABLE_IMAGES=0 可临时关闭配图（用于判断发帖失败是否与图片有关）
+    if os.getenv("ENABLE_IMAGES", "1") == "1":
+        image_urls = [it.get("image") for it in items if it.get("image")][:2]
+    else:
+        image_urls = []
+        print("[main] ENABLE_IMAGES=0：本次不配图")
     if image_urls:
         print(f"[main] 准备 {len(image_urls)} 张配图（会在发帖时转存到贴吧图床）")
 
