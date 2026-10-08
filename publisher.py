@@ -39,10 +39,28 @@ HEADERS = {
 
 
 def _cookies() -> dict:
-    """组装贴吧所需 Cookie。不同账号/接口可能需要 BDUSS + BDUSS_BFESS + STOKEN + BAIDUID 组合。
+    """组装贴吧所需 Cookie。
 
-    BDUSS_BFESS 在多数账号下与 BDUSS 值相同；若用户未填，自动复用 BDUSS。
+    优先级：
+      1) COOKIE_STRING —— 从浏览器 F12 整串复制的完整 Cookie（最可靠）。
+         只填 BDUSS 往往不够：百度会校验设备指纹，缺 BAIDUID/STOKEN 等易被判异常登录。
+      2) 单字段组合 BDUSS + BDUSS_BFESS + STOKEN + BAIDUID ...
     """
+    import os
+
+    raw = (os.getenv("COOKIE_STRING") or "").strip()
+    if raw:
+        parsed = {}
+        for part in raw.split(";"):
+            if "=" not in part:
+                continue
+            k, v = part.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if k and v:
+                parsed[k] = v
+        if parsed:
+            return parsed
+
     cookies = {}
     bduss = cfg.bduss
     bduss_bfess = cfg.bduss_bfess or bduss  # 未填时复用 BDUSS
@@ -55,6 +73,8 @@ def _cookies() -> dict:
     baiduid = cfg.baiduid or cfg.baiduid_bfess
     if baiduid:
         cookies["BAIDUID"] = baiduid
+    if cfg.baiduid_bfess:
+        cookies["BAIDUID_BFESS"] = cfg.baiduid_bfess
     if cfg.baidu_wise_uid:
         cookies["BAIDU_WISE_UID"] = cfg.baidu_wise_uid
     return cookies
