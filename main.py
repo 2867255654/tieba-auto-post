@@ -69,13 +69,14 @@ def main():
         dry_run = None  # 由 publisher 根据 cfg 自行判断
     will_post = mode == "发帖"
     results = {}
-    # 配图：取采集到的前 2 条「带图资讯」的源站配图（正文里第一张会当帖子封面）
-    # 排查用开关：设 ENABLE_IMAGES=0 可临时关闭配图（用于判断发帖失败是否与图片有关）
-    if os.getenv("ENABLE_IMAGES", "1") == "1":
+    # 配图开关：默认 0（关闭）。
+    # 2026-10-08 实测结论：贴吧老发帖接口不解析图片标记，`#(pic,...)` 在客户端和网页版都不渲染，
+    # HTML `<img>` 又被拒收（no=2000）—— 图片标记只会变成正文里一行难看的代码文字。
+    # 故默认只发纯文字。想恢复配图（在浏览器发帖通道下才有效）时设 ENABLE_IMAGES=1。
+    if os.getenv("ENABLE_IMAGES", "0") == "1":
         image_urls = [it.get("image") for it in items if it.get("image")][:2]
     else:
         image_urls = []
-        print("[main] ENABLE_IMAGES=0：本次不配图")
     if image_urls:
         print(f"[main] 准备 {len(image_urls)} 张配图（会在发帖时转存到贴吧图床）")
 

@@ -51,6 +51,10 @@ jobs:
           # 默认免费版 glm-4-flash；想要更好的文案质量可在 Variables 覆盖为 glm-4-air（约 0.5 元/百万 token）
           LLM_MODEL: ${{ vars.LLM_MODEL || 'glm-4-flash' }}
           # 敏感项（账号钥匙 / API 密钥）走加密 Secrets
+          # 【推荐】COOKIE_STRING：从浏览器 F12 整串复制的完整 Cookie（含 BDUSS/STOKEN/BAIDUID 等）。
+          # 只填 BDUSS 往往不够 —— 百度会校验设备指纹，本地方案已验证必须用整串才能登录成功。
+          # 填了 COOKIE_STRING 后，下面的单字段 Cookie 可留空。
+          COOKIE_STRING: ${{ secrets.COOKIE_STRING }}
           BDUSS: ${{ secrets.BDUSS }}
           # LLM 密钥：填智谱 API Key；留空则自动回退到内置兜底摘要
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
@@ -59,6 +63,9 @@ jobs:
           BDUSS_BFESS: ${{ secrets.BDUSS_BFESS }}
           BAIDUID: ${{ secrets.BAIDUID }}
           BAIDUID_BFESS: ${{ secrets.BAIDUID_BFESS }}
+          # 配图开关：贴吧老发帖接口不解析图片标记（实测两端都不显示），故固定关闭，只发纯文字。
+          # 想恢复配图时把 Variables 里的 ENABLE_IMAGES 设为 1。
+          ENABLE_IMAGES: ${{ vars.ENABLE_IMAGES || '0' }}
           # 发帖开关：默认 '0'（草稿预览）。要真发，在 Secrets 设 POST_MODE=1 并填 BDUSS 及上述 Cookie
           POST_MODE: ${{ secrets.POST_MODE || '0' }}
         run: python main.py
