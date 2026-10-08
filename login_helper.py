@@ -61,10 +61,10 @@ def main():
                 "{credentials:'include'});return await r.text();}catch(e){return 'ERR'}}"
             )
             ok = bool(info) and info.strip() not in ("null", "") and not info.startswith("ERR")
-            print(f"登录态校验：{'✅ 有效' if ok else '❌ 仍未登录'}")
         except Exception:  # noqa: BLE001
             ok = None
         browser.close()
+    print(f"登录态校验：{'有效，登录成功' if ok else '未登录（请重试）' if ok is False else '无法校验'}")
     print(f"\n已保存登录态：{STATE}")
     if ok:
         print("现在可以直接双击 run_local.bat 发帖了（会自动复用该登录态）。")
