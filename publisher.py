@@ -80,6 +80,19 @@ def _cookies() -> dict:
     return cookies
 
 
+def _sanitize_for_tieba(text: str) -> str:
+    """清洗贴吧正文/标题里的危险字符。
+
+    【重要】贴吧 content 是富文本格式，正文里的半角尖括号 `<...>` 会被服务端
+    当成 HTML 标签解析，导致「参数校验未通过」（no=2000，实测复现）。
+    LLM 常输出 `<收尾梗>` 这类标记，必须替换掉。
+    这里统一换成全角 ＜＞：视觉几乎一致，但不会被当作标签。
+    """
+    if not text:
+        return text
+    return text.replace("<", "＜").replace(">", "＞")
+
+
 def _format_content(content: str, images: list | None = None) -> str:
     """把普通正文转成贴吧富文本格式 [[0,1,"段落"], ...]，可选插入配图。
 
@@ -90,7 +103,8 @@ def _format_content(content: str, images: list | None = None) -> str:
     if not paragraphs:
         paragraphs = [content]
     # 实测：只给数组分段，贴吧渲染时不会换行；必须在每段文本末尾补 \n 才会真正换行。
-    arr = [[0, 1, p + "\n"] for p in paragraphs]
+    # 同时清洗尖括号（见 _sanitize_for_tieba，这是 no=2000 的真正元凶）。
+    arr = [[0, 1, _sanitize_for_tieba(p) + "\n"] for p in paragraphs]
     if images:
         pic_paras = [
             [0, 1, f"#(pic,{im['pic_id']},{im['width']},{im['height']})\n"] for im in images
@@ -547,7 +561,7 @@ def post_thread(
         "is_video": "false",
         "src": "1",
         "rich_text": "1",
-        "title": title,
+        "title": _sanitize_for_tieba(title),
         "content": _format_content(content, images),
         "tbs": tbs,
         "vericode": "",  # 正常无验证码时留空；触发验证码需人工处理
@@ -862,10 +876,11 @@ def _browser_flow(page, forum: str, title: str, content: str, image_urls) -> dic
 # 百度贴吧发帖常见错误码（把原始响应翻译成人话，便于排查）
 _TIEBA_POST_ERR = {
     2000: (
-        "参数校验未通过。两种常见原因："
-        "① 吧名写法不对（贴吧吧名不带“吧”字，应填 Steam / Epic，而非 Steam吧 / epic吧）；"
-        "② 短时间内发帖过快、或与近期内容高度重复，被风控拦截 —— 建议隔 1~2 小时再试或更换内容"
+        "参数校验未通过。实测最常见原因：正文里含半角尖括号 < >，"
+        "会被贴吧当成 HTML 标签而拒收（程序已自动替换为全角 ＜＞）。"
+        "其余可能：吧名写法不对（应填 Steam / Epic，不带“吧”字）"
     ),
+    40: "发帖过于频繁，已被限流 —— 请间隔一段时间再试（本地反复调试时最容易触发）",
     2101: "本吧仅登录用户可发帖，或登录态已失效",
     4010: "账号存在异常，需绑定手机后再操作",
     220034: "操作太频繁，被限流，稍后再试",
