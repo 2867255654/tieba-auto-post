@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# 由 login_helper.py 生成的浏览器登录态（等同账号钥匙，绝不入库）
+.auth_state.json
+
 # Python
 __pycache__/
 *.pyc

@@ -54,6 +54,19 @@ class Config:
     # 发帖开关：默认 False（草稿预览），绝不自动发帖
     post_mode: bool = os.getenv("POST_MODE", "0") in ("1", "true", "True", "yes")
 
+    # ===== 浏览器发帖（Playwright）=====
+    # 贴吧 PC 端发帖接口已改成 /c/c/thread/add，强制要求 sign/jt 等浏览器行为签名，
+    # 纯 requests 会被判定为机器人（返回 no=2000）。用真实 Chrome 走页面流程可完全绕开。
+    browser_mode: bool = os.getenv("BROWSER_MODE", "1") in ("1", "true", "True", "yes")
+    # 是否无头运行。默认有头（headless=0）—— 百度对无头浏览器有检测，
+    # 有头模式更接近真人操作，成功率更高；无头仅用于调试/服务器环境。
+    browser_headless: bool = os.getenv("BROWSER_HEADLESS", "0") in ("1", "true", "True", "yes")
+    # Chrome 可执行通道：chrome / msedge / 留空（用 Playwright 自带 chromium）
+    browser_channel: str = os.getenv("BROWSER_CHANNEL", "chrome")
+    # 从浏览器 F12 整串复制的 Cookie（含 BDUSS / STOKEN / BAIDUID 等）。
+    # 填了它就用它，最完整；留空则用下面的 BDUSS / STOKEN / BAIDUID 组合。
+    cookie_string: str = os.getenv("COOKIE_STRING", "")
+
     # 每天摘抄条数 / 资讯时间窗口（小时）
     top_n: int = int(os.getenv("TOP_N", "8"))
     max_age_hours: int = int(os.getenv("MAX_AGE_HOURS", "24"))

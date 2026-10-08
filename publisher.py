@@ -69,8 +69,8 @@ def _format_content(content: str, images: list | None = None) -> str:
     paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
     if not paragraphs:
         paragraphs = [content]
-    # 实测：只给数组分段，贴吧渲染时不会换行；必须在每段文本末尾补 \n 才会真正换行。
-    arr = [[0, 1, p + "\n"] for p in paragraphs]
+    # 注意：之前为了换行在段末补 \n，怀疑它导致富文本校验失败（no=2000），先去掉验证。
+    arr = [[0, 1, p] for p in paragraphs]
     if images:
         pic_paras = [
             [0, 1, f"#(pic,{im['pic_id']},{im['width']},{im['height']})\n"] for im in images
@@ -518,19 +518,16 @@ def post_thread(
     tbs: str,
     images: list | None = None,
 ) -> dict:
+    # 只保留官方示例里的核心参数。之前多带了 is_video/src/vericode/vote_info/post_source，
+    # 怀疑其中有字段导致 "no=2000 参数校验未通过"，先做最小化验证。
     data = {
         "ie": "utf-8",
         "fid": fid,
         "kw": forum_name,
-        "is_video": "false",
-        "src": "1",
         "rich_text": "1",   # 声明 content 为富文本（换行/图片标记才生效）
+        "tbs": tbs,
         "title": title,
         "content": _format_content(content, images),
-        "tbs": tbs,
-        "vericode": "",  # 正常无验证码时留空；触发验证码需人工处理
-        "vote_info": "",
-        "post_source": "1",
         "__type__": "thread",
     }
     # 显式用 UTF-8 编码请求体，并在 Content-Type 里声明 charset：否则服务端可能按 GBK 解析，
@@ -579,6 +576,262 @@ def post_thread(
         return r.json()
     except Exception:  # noqa: BLE001
         return {"raw": r.text[:500]}
+
+
+# ===================== 浏览器发帖（Playwright）=====================
+# 背景：贴吧 PC 端发帖接口已改到 /c/c/thread/add，强制要求 sign / jt 等由页面 JS
+# 生成的浏览器行为签名，纯 requests 发帖会被判定为机器人（no=2000 参数校验未通过）。
+# 这里用真实 Chrome 打开贴吧页面、走和真人一样的「点发贴 → 填标题正文 → 发表」流程，
+# 所有签名交给页面自己算，从根本上绕开风控。
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+# 由 login_helper.py 生成的登录态文件（含完整 Cookie）。存在则优先使用它，
+# 免去手动维护 BDUSS —— BDUSS 会失效，而这个文件可随时重新登录刷新。
+_AUTH_STATE = Path(__file__).resolve().parent / ".auth_state.json"
+_BROWSER_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-dev-shm-usage",
+]
+
+
+def _browser_cookies() -> list:
+    """构造注入浏览器的 Cookie 列表。
+
+    优先使用 COOKIE_STRING（从浏览器 F12 整串复制的完整 Cookie，最可靠）；
+    未填时退回 BDUSS / STOKEN / BAIDUID 等单字段组合。
+    """
+    import os
+
+    raw = (os.getenv("COOKIE_STRING") or "").strip()
+    pairs: list[tuple[str, str]] = []
+    if raw:
+        for part in raw.split(";"):
+            if "=" not in part:
+                continue
+            k, v = part.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if k and v:
+                pairs.append((k, v))
+    if not pairs:
+        pairs = list(_cookies().items())
+
+    out, seen = [], set()
+    for k, v in pairs:
+        if not v or k in seen:
+            continue
+        seen.add(k)
+        out.append(
+            {
+                "name": k,
+                "value": v,
+                "path": "/",
+                # STOKEN 只挂在贴吧域；其余统一挂 .baidu.com
+                "domain": ".tieba.baidu.com" if k.upper() == "STOKEN" else ".baidu.com",
+            }
+        )
+    return out
+
+
+def _browser_login_ok(page) -> tuple[bool, str]:
+    """用页面内 fetch 问贴吧用户信息接口，判断登录态是否有效。"""
+    try:
+        info = page.evaluate(
+            "async()=>{try{const r=await fetch('/f/user/json_userinfo',"
+            "{credentials:'include'});return await r.text();}catch(e){return 'ERR:'+e.message}}"
+        )
+    except Exception as e:  # noqa: BLE001
+        return False, f"登录态检查异常：{str(e)[:120]}"
+    s = (info or "").strip()
+    if not s or s == "null" or s.startswith("ERR"):
+        return False, f"未登录（接口返回 {s[:60]!r}）"
+    return True, s[:120]
+
+
+def _post_via_browser(
+    forum: str, title: str, content: str, image_urls: list | None = None
+) -> dict:
+    """用真实浏览器发帖，返回形如 {'no':0,'data':{'tid':...}} 的结果字典。"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:  # noqa: BLE001
+        raise RuntimeError(
+            "未安装 playwright —— 请执行：pip install playwright"
+        ) from e
+
+    cookies = _browser_cookies()
+    if not cookies and not _AUTH_STATE.exists():
+        raise RuntimeError(
+            "没有可用登录态 —— 请先运行 login_helper.py 登录一次"
+            "（或填写 .env 的 COOKIE_STRING / BDUSS）"
+        )
+    if cookies:
+        print(f"[publisher] 浏览器将注入 {len(cookies)} 个 cookie：{[c['name'] for c in cookies]}")
+
+    with sync_playwright() as pw:
+        browser, last_err = None, None
+        for channel in ([cfg.browser_channel] if cfg.browser_channel else []) + [None]:
+            try:
+                kw = {"headless": cfg.browser_headless, "args": _BROWSER_ARGS}
+                if channel:
+                    kw["channel"] = channel
+                browser = pw.chromium.launch(**kw)
+                print(
+                    f"[publisher] 浏览器已启动：channel={channel or 'bundled'} "
+                    f"headless={cfg.browser_headless}"
+                )
+                break
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                print(f"[publisher] 启动浏览器失败（channel={channel}）：{str(e)[:120]}")
+        if browser is None:
+            raise RuntimeError(f"无法启动浏览器：{last_err}")
+
+        ctx_kwargs = {
+            "user_agent": BROWSER_UA,
+            "locale": "zh-CN",
+            "viewport": {"width": 1366, "height": 900},
+        }
+        use_state = _AUTH_STATE.exists()
+        if use_state:
+            ctx_kwargs["storage_state"] = str(_AUTH_STATE)
+        ctx = browser.new_context(**ctx_kwargs)
+        ctx.add_init_script(
+            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+        )
+        if use_state:
+            print(f"[publisher] 复用已保存的登录态：{_AUTH_STATE.name}")
+        else:
+            ctx.add_cookies(cookies)
+        page = ctx.new_page()
+        try:
+            return _browser_flow(page, forum, title, content, image_urls)
+        finally:
+            try:
+                ctx.close()
+            except Exception:  # noqa: BLE001
+                pass
+            browser.close()
+
+
+def _browser_flow(page, forum: str, title: str, content: str, image_urls) -> dict:
+    """打开吧首页 → 检查登录 → 点发贴 → 填标题正文 → 发表 → 判定结果。"""
+    url = f"{TIEBA}/f?kw={requests.utils.quote(forum)}"
+    print(f"[publisher] 打开吧首页：{url}")
+    page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    page.wait_for_timeout(3000)
+
+    ok, detail = _browser_login_ok(page)
+    print(f"[publisher] 登录态：{'✅ 有效' if ok else '❌ 无效'} {detail}")
+    if not ok:
+        raise RuntimeError(
+            "浏览器登录态无效 —— 请重新登录贴吧后，从浏览器复制最新 Cookie "
+            "填入 .env 的 COOKIE_STRING（或 BDUSS/STOKEN）"
+        )
+
+    # 1) 点开发贴编辑器
+    opened = False
+    for sel in (".add-post .add-btn", ".button-wrapper--add-post", "text=发贴"):
+        try:
+            page.click(sel, timeout=6000)
+            opened = True
+            print(f"[publisher] 已点击发贴入口：{sel}")
+            break
+        except Exception:  # noqa: BLE001
+            continue
+    if not opened:
+        raise RuntimeError("找不到发帖入口（.add-post .add-btn），页面结构可能已改版")
+    page.wait_for_timeout(2500)
+
+    # 2) 填标题（编辑器里的单行输入框）
+    title_box = None
+    for sel in (
+        "input[placeholder*='标题']",
+        ".post-title input",
+        "input.editor-title",
+        ".edui-body-container input",
+    ):
+        loc = page.locator(sel).first
+        try:
+            if loc.count() and loc.is_visible():
+                title_box = loc
+                break
+        except Exception:  # noqa: BLE001
+            continue
+    if title_box is None:
+        # 兜底：编辑器区域里第一个可见的 text 输入框
+        cand = page.locator("input[type='text']")
+        for i in range(min(cand.count(), 6)):
+            if cand.nth(i).is_visible():
+                title_box = cand.nth(i)
+                break
+    if title_box is None:
+        raise RuntimeError("找不到标题输入框")
+    title_box.click()
+    title_box.fill(title)
+    print(f"[publisher] 标题已填：{title}")
+
+    # 3) 填正文（富文本 contenteditable）
+    body_box = None
+    for sel in ("[contenteditable='true']", ".edui-body-container", "textarea"):
+        loc = page.locator(sel).first
+        try:
+            if loc.count() and loc.is_visible():
+                body_box = loc
+                break
+        except Exception:  # noqa: BLE001
+            continue
+    if body_box is None:
+        raise RuntimeError("找不到正文编辑区")
+    body_box.click()
+    # 富文本区用逐行输入，保证换行保留
+    for i, line in enumerate(content.split("\n")):
+        if i:
+            page.keyboard.press("Enter")
+        if line:
+            page.keyboard.type(line, delay=2)
+    print(f"[publisher] 正文已填（{len(content)} 字）")
+
+    # 4) 点“发表”
+    page.wait_for_timeout(600)
+    submitted = False
+    for sel in ("text=发表", "button:has-text('发表')", ".poster_submit", ".publish-btn"):
+        try:
+            page.click(sel, timeout=5000)
+            submitted = True
+            print(f"[publisher] 已点击发表：{sel}")
+            break
+        except Exception:  # noqa: BLE001
+            continue
+    if not submitted:
+        raise RuntimeError("找不到“发表”按钮")
+
+    # 5) 判定结果：成功会跳转到帖子页 /p/xxxx
+    tid = ""
+    for _ in range(20):
+        page.wait_for_timeout(1000)
+        m = re.search(r"/p/(\d+)", page.url)
+        if m:
+            tid = m.group(1)
+            break
+    body_text = ""
+    try:
+        body_text = page.inner_text("body")[:400]
+    except Exception:  # noqa: BLE001
+        pass
+    if tid:
+        print(f"[publisher] ✅ 浏览器发帖成功，tid={tid}")
+        return {"no": 0, "err_code": 0, "data": {"tid": tid, "fname": forum}}
+
+    # 没跳转：尝试从页面文案判断失败原因
+    for kw in ("验证码", "频繁", "失败", "禁止", "删帖", "违规"):
+        if kw in body_text:
+            print(f"[publisher] ❌ 页面提示包含「{kw}」")
+            return {"no": 2000, "error": kw, "data": {"tid": "", "fname": forum, "msg": body_text[:200]}}
+    return {"no": 2000, "error": "unknown", "data": {"tid": "", "fname": forum, "msg": body_text[:200]}}
 
 
 # 百度贴吧发帖常见错误码（把原始响应翻译成人话，便于排查）
@@ -646,7 +899,29 @@ def publish(
         print(f"[publisher] 正文预览：\n{content[:600]}")
         return {"dry_run": True, "path": str(path)}
 
-    # 真正发帖
+    # 真正发帖：优先走浏览器（贴吧已加浏览器行为签名校验，纯 requests 会被判定为机器人）
+    if cfg.browser_mode:
+        try:
+            res = _post_via_browser(forum, title, content, image_urls)
+            print(f"[publisher] 发帖响应：{res}")
+            ok, why = _judge_post_response(res)
+            print(f"[publisher] {'✅ 发帖成功：' if ok else '❌ 发帖失败：'}{why}")
+            (OUTPUT_DIR / f"post_response_{time.strftime('%Y%m%d_%H%M%S')}.txt").write_text(
+                str(res), encoding="utf-8"
+            )
+            return res
+        except Exception as e:  # noqa: BLE001
+            print(f"[publisher] 浏览器发帖失败（{forum}）：{type(e).__name__}: {e}")
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            safe = re.sub(r'[\\/:*?"<>|]', "_", forum)
+            fallback = OUTPUT_DIR / f"draft_{safe}_{ts}.txt"
+            fallback.write_text(
+                f"吧名：{forum}\n标题：{title}\n\n{content}", encoding="utf-8"
+            )
+            print(f"[publisher] 已保存失败草稿：{fallback}")
+            return {"error": str(e), "forum": forum}
+
+    # 备用通道：原生 requests（贴吧若放宽限制仍可用）
     try:
         # 先预热 Session（访问首页建立会话），否则风控会返回"雷达接入"通用页
         session = _create_session()
