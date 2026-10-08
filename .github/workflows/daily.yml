@@ -8,9 +8,13 @@
 name: 贴吧游戏资讯每日摘抄
 
 on:
+  # 定时触发：每天 UTC 02:00 = 北京时间 10:00
+  # 注意：GitHub 的 schedule 不保证准时（高负载时可能延迟甚至丢弃），只作备份；
+  #       要稳定发帖，请以本地任务计划（双击 setup_task.bat 注册）为主。
   schedule:
-    - cron: '0 2 * * *'   # 北京时间 10:00（UTC 02:00）
-  workflow_dispatch: {}   # 允许在 Actions 页面手动点「Run workflow」
+    - cron: "0 2 * * *"
+  # 手动触发：在 Actions 页面点「Run workflow」
+  workflow_dispatch:
 
 permissions:
   contents: read
