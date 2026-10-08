@@ -902,6 +902,16 @@ def _judge_post_response(res) -> tuple:
     fname = data.get("fname") or ""
     if str(no) == "0" and tid and tid != "0":
         return True, f"tid={tid}  吧={fname}"
+
+    # 触发验证码（短时间发帖过多的典型表现）——给出比通用提示更明确的信息
+    vcode = data.get("vcode") or {}
+    if isinstance(vcode, dict) and vcode.get("need_vcode"):
+        reason = vcode.get("str_reason") or "需要输入验证码"
+        return False, (
+            f"no={no} 被要求验证码：{reason} —— 通常是短时间发帖过多被限流，"
+            "请间隔数小时再试（日常每天只发 1 次不会触发）"
+        )
+
     try:
         hint = _TIEBA_POST_ERR.get(int(no), "")
     except (TypeError, ValueError):
