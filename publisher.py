@@ -69,8 +69,8 @@ def _format_content(content: str, images: list | None = None) -> str:
     paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
     if not paragraphs:
         paragraphs = [content]
-    # 注意：之前为了换行在段末补 \n，怀疑它导致富文本校验失败（no=2000），先去掉验证。
-    arr = [[0, 1, p] for p in paragraphs]
+    # 实测：只给数组分段，贴吧渲染时不会换行；必须在每段文本末尾补 \n 才会真正换行。
+    arr = [[0, 1, p + "\n"] for p in paragraphs]
     if images:
         pic_paras = [
             [0, 1, f"#(pic,{im['pic_id']},{im['width']},{im['height']})\n"] for im in images
@@ -518,16 +518,21 @@ def post_thread(
     tbs: str,
     images: list | None = None,
 ) -> dict:
-    # 只保留官方示例里的核心参数。之前多带了 is_video/src/vericode/vote_info/post_source，
-    # 怀疑其中有字段导致 "no=2000 参数校验未通过"，先做最小化验证。
+    # 恢复为完整参数字段（排查期曾精简，但已确认参数与 no=2000 无关）。
+    # rich_text=1 为富文本声明，换行与 #(pic,...) 图片标记依赖它。
     data = {
         "ie": "utf-8",
         "fid": fid,
         "kw": forum_name,
-        "rich_text": "1",   # 声明 content 为富文本（换行/图片标记才生效）
-        "tbs": tbs,
+        "is_video": "false",
+        "src": "1",
+        "rich_text": "1",
         "title": title,
         "content": _format_content(content, images),
+        "tbs": tbs,
+        "vericode": "",  # 正常无验证码时留空；触发验证码需人工处理
+        "vote_info": "",
+        "post_source": "1",
         "__type__": "thread",
     }
     # 显式用 UTF-8 编码请求体，并在 Content-Type 里声明 charset：否则服务端可能按 GBK 解析，

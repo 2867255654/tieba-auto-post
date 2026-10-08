@@ -54,10 +54,10 @@ class Config:
     # 发帖开关：默认 False（草稿预览），绝不自动发帖
     post_mode: bool = os.getenv("POST_MODE", "0") in ("1", "true", "True", "yes")
 
-    # ===== 浏览器发帖（Playwright）=====
-    # 贴吧 PC 端发帖接口已改成 /c/c/thread/add，强制要求 sign/jt 等浏览器行为签名，
-    # 纯 requests 会被判定为机器人（返回 no=2000）。用真实 Chrome 走页面流程可完全绕开。
-    browser_mode: bool = os.getenv("BROWSER_MODE", "1") in ("1", "true", "True", "yes")
+    # ===== 浏览器发帖（Playwright）—— 默认关闭，保留为备用通道 =====
+    # 主路线仍是原生 requests 发帖。若哪天 requests 又被贴吧风控卡死，
+    # 把 BROWSER_MODE 设为 1 即可切到「真实 Chrome 模拟点击」通道（需装 playwright）。
+    browser_mode: bool = os.getenv("BROWSER_MODE", "0") in ("1", "true", "True", "yes")
     # 是否无头运行。默认有头（headless=0）—— 百度对无头浏览器有检测，
     # 有头模式更接近真人操作，成功率更高；无头仅用于调试/服务器环境。
     browser_headless: bool = os.getenv("BROWSER_HEADLESS", "0") in ("1", "true", "True", "yes")
