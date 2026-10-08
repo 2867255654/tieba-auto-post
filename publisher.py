@@ -530,13 +530,22 @@ def post_thread(
         "post_source": "1",
         "__type__": "thread",
     }
+    # 显式用 UTF-8 编码请求体，并在 Content-Type 里声明 charset：否则服务端可能按 GBK 解析，
+    # 中文会变成乱码（"圆弧" -> "鍦嗘弧"），并可能被判定为参数无效（no=2000）。
+    from urllib.parse import urlencode
+
+    body = urlencode(data, encoding="utf-8").encode("ascii")
+    print(f"[publisher] POST body({len(body)}B) 摘要: {body[:110]!r}")
     post_headers = _headers(
-        {"Referer": f"{TIEBA}/f?kw={requests.utils.quote(forum_name)}"}
+        {
+            "Referer": f"{TIEBA}/f?kw={requests.utils.quote(forum_name)}",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        }
     )
     try:
         r = session.post(
             f"{TIEBA}/f/commit/thread/add",
-            data=data,
+            data=body,
             headers=post_headers,
             cookies=_cookies(),
             timeout=20,
@@ -550,7 +559,7 @@ def post_thread(
         # 关闭自动重定向再试一次，看贴吧实际返回什么
         r = session.post(
             f"{TIEBA}/f/commit/thread/add",
-            data=data,
+            data=body,
             headers=post_headers,
             cookies=_cookies(),
             timeout=20,

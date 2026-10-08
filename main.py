@@ -9,13 +9,12 @@
 """
 import sys
 
-# Windows 控制台默认 GBK 编码，帖子正文里的 emoji 等字符会导致 print 时抛
-# UnicodeEncodeError，使进程退出码非零、定时任务被判失败。把 stdout/stderr 的
-# 错误处理改成 replace，无法编码的字符替换为 ?，流程不再因偶发字符而中断。
+# Windows 控制台/重定向默认编码可能是 GBK：帖子正文里的中文与 emoji 会变成乱码或 "?",
+# 甚至因 UnicodeEncodeError 中断流程。这里统一改成 UTF-8 输出（errors=replace 兜底）。
 try:
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(errors="replace")
-        sys.stderr.reconfigure(errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:  # noqa: BLE001
     pass
 
