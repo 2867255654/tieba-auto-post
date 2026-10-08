@@ -76,11 +76,10 @@ def _format_content(content: str, images: list | None = None) -> str:
             [0, 1, f"#(pic,{im['pic_id']},{im['width']},{im['height']})\n"] for im in images
         ]
         arr = pic_paras[:1] + arr + pic_paras[1:]
-    # ensure_ascii=True：中文/emoji 全部转成 \uXXXX 形式（纯 ASCII）。
-    # 之前实测：我们发的 UTF-8 百分号编码完全正确，但服务端按 GBK 解析导致内容变乱码
-    # （"圆弧" -> "鍦嗘弧"）；改成纯 ASCII 后，无论对方用什么编码解都不会错，
-    # 贴吧解析这段 JSON 时会自动还原成中文。
-    return json.dumps(arr, ensure_ascii=True, separators=(",", ":"))
+    # 保持中文原样（ensure_ascii=False）。实测发帖 body 里 title/content 的 UTF-8 百分号
+    # 编码完全正确（%E8%90%BD%E5%B9%95 = "落幕"），回显里的乱码是服务端侧编码问题，
+    # 不是我们发错；改成 \uXXXX 反而会让正文显示成转义字面量。
+    return json.dumps(arr, ensure_ascii=False, separators=(",", ":"))
 
 
 def _headers(extra: dict | None = None) -> dict:
